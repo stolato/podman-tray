@@ -1,0 +1,184 @@
+// Package tray implements the menu bar app.
+package tray
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"fyne.io/systray"
+
+	"podman-tray/internal/macos"
+	"podman-tray/internal/podman"
+)
+
+const (
+	pollInterval  = 5 * time.Second  // when the events stream is unavailable
+	idleInterval  = 60 * time.Second // safety net while events drive refreshes
+	statsInterval = 2 * time.Second  // while the menu was recently opened
+	statsWindow   = 30 * time.Second // how long after opening the menu stats keep refreshing
+	maxBackoff    = 60 * time.Second // ceiling for retries while podman is unreachable
+)
+
+type App struct {
+	pm    *podman.Client
+	pmErr error
+
+	refreshCh chan struct{}
+
+	mu            sync.Mutex
+	busy          map[string]string // container name -> action in progress
+	machineAction string            // machine action in progress ("start"/"stop"), if any
+
+	eventsLive   atomic.Bool
+	menuOpenedAt atomic.Int64 // unix nanos
+
+	debounceMu sync.Mutex
+	debounce   *time.Timer
+
+	// Owned by the refresh loop goroutine.
+	layoutKey  string
+	done       chan struct{}
+	header     *systray.MenuItem
+	machine    *machineMenu
+	containers map[string]*containerMenu
+	cpuPrev    map[string]cpuSample
+}
+
+func New() *App {
+	pm, err := podman.New()
+	return &App{
+		pm:        pm,
+		pmErr:     err,
+		refreshCh: make(chan struct{}, 1),
+		busy:      map[string]string{},
+		cpuPrev:   map[string]cpuSample{},
+	}
+}
+
+func (a *App) OnReady() {
+	systray.SetTemplateIcon(trayIcon(), trayIcon())
+	systray.SetTooltip(VersionString())
+	macos.SetupNotifications()
+	if err := macos.SyncLoginItem(); err != nil {
+		macos.Notify("Erro ao atualizar login item", err.Error())
+	}
+	go a.loop()
+	go a.watchMenuOpen()
+	if a.pm != nil {
+		go a.watchEvents()
+	}
+}
+
+func (a *App) OnExit() {}
+
+func (a *App) triggerRefresh() {
+	select {
+	case a.refreshCh <- struct{}{}:
+	default:
+	}
+}
+
+func (a *App) loop() {
+	var backoff time.Duration
+	for {
+		s := a.refresh()
+
+		var wait time.Duration
+		wait, backoff = a.nextWait(s.err != nil, backoff)
+		timer := time.NewTimer(wait)
+		select {
+		case <-timer.C:
+		case <-a.refreshCh:
+			timer.Stop()
+		}
+	}
+}
+
+// nextWait picks the delay until the next refresh. Failures back off exponentially, so a
+// stopped machine doesn't cost a `podman ps` + `machine list` every few seconds.
+func (a *App) nextWait(failed bool, backoff time.Duration) (wait, nextBackoff time.Duration) {
+	if failed {
+		backoff = min(max(2*backoff, pollInterval), maxBackoff)
+		return backoff, backoff
+	}
+	switch {
+	case a.menuRecentlyOpened():
+		return statsInterval, 0
+	case a.eventsLive.Load():
+		return idleInterval, 0
+	default:
+		return pollInterval, 0
+	}
+}
+
+func (a *App) watchMenuOpen() {
+	for range systray.TrayOpenedCh {
+		a.menuOpenedAt.Store(time.Now().UnixNano())
+		a.triggerRefresh()
+	}
+}
+
+func (a *App) menuRecentlyOpened() bool {
+	return time.Since(time.Unix(0, a.menuOpenedAt.Load())) < statsWindow
+}
+
+type snapshot struct {
+	containers     []podman.Container
+	err            error
+	machine        *podman.Machine         // nil if there is none or it couldn't be listed
+	machineStopped bool                    // podman is unreachable because the machine is down
+	stats          map[string]podman.Stats // by container name; nil when not fetched
+	statsAt        time.Time
+}
+
+func (a *App) fetch() snapshot {
+	if a.pmErr != nil {
+		return snapshot{err: a.pmErr}
+	}
+	cs, err := a.pm.ListContainers()
+	s := snapshot{containers: cs, err: err}
+	s.machine, _ = a.pm.Machine()
+	if err != nil {
+		s.machineStopped = s.machine != nil && s.machine.Stopped()
+		return s
+	}
+	// Stats are only shown in the menu, so skip them while nobody is looking.
+	if a.menuRecentlyOpened() && anyRunning(cs) {
+		if ss, err := a.pm.Stats(); err == nil {
+			s.statsAt = time.Now()
+			s.stats = make(map[string]podman.Stats, len(ss))
+			for _, st := range ss {
+				s.stats[st.Name] = st
+			}
+		}
+	}
+	return s
+}
+
+func (a *App) refresh() snapshot {
+	s := a.fetch()
+
+	keys := make([]string, len(s.containers))
+	for i, c := range s.containers {
+		keys[i] = c.Name() + "[" + c.PortList() + "]"
+	}
+	key := fmt.Sprintf("%s|%t|%t", strings.Join(keys, ","), s.err != nil, s.machineStopped)
+	if key != a.layoutKey {
+		a.build(s)
+		a.layoutKey = key
+	}
+	a.update(s)
+	return s
+}
+
+func anyRunning(cs []podman.Container) bool {
+	for _, c := range cs {
+		if c.Running() {
+			return true
+		}
+	}
+	return false
+}
