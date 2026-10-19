@@ -1,0 +1,36 @@
+name: DMG
+
+# Builds the universal DMG on every push to main and on manual runs (as a workflow artifact).
+# Pushing a tag like v1.0.0 also publishes it as a GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - run: make test
+
+      - run: make dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: dist/*.dmg
+
+      - if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.dmg --title "$GITHUB_REF_NAME" --generate-notes
