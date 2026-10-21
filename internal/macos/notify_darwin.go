@@ -9,6 +9,7 @@ package macos
 bool pt_in_bundle(void);
 void pt_notifications_setup(void);
 void pt_notify(const char *title, const char *body);
+bool pt_notifications_denied(void);
 bool pt_confirm(const char *title, const char *msg, const char *button);
 */
 import "C"
@@ -36,6 +37,17 @@ func Notify(title, msg string) {
 	defer C.free(unsafe.Pointer(ct))
 	defer C.free(unsafe.Pointer(cm))
 	C.pt_notify(ct, cm)
+}
+
+// NotificationsDenied reports whether notifications are turned off for the app in
+// System Settings, in which case Notify falls back to osascript.
+func NotificationsDenied() bool {
+	return inBundle && bool(C.pt_notifications_denied())
+}
+
+// OpenNotificationSettings opens the app's page in System Settings > Notifications.
+func OpenNotificationSettings() error {
+	return OpenURL("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=" + bundleID)
 }
 
 //export ptNotifyFallback

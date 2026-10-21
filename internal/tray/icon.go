@@ -8,9 +8,21 @@ import (
 	"math"
 )
 
-// trayIcon draws a pea pod (capsule outline with three peas) as a macOS template image.
-func trayIcon() []byte {
-	const size = 44
+const iconSize = 44
+
+// Status dot in the bottom-right corner, in icon pixels (y down). The pod is
+// cleared up to dotGap around it so the dot stays readable.
+const (
+	dotX   = 37.0
+	dotY   = 34.0
+	dotR   = 5.5
+	dotGap = 8.0
+)
+
+// trayIcon draws a pea pod (capsule outline with three peas) as a black mask,
+// with room cut out for the status dot when withDot is set.
+func trayIcon(withDot bool) []byte {
+	const size = iconSize
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 
 	const (
@@ -34,6 +46,9 @@ func trayIcon() []byte {
 
 			for _, pcx := range peas {
 				a = math.Max(a, coverage(peaRadius-math.Hypot(px-pcx, py-cy)))
+			}
+			if withDot {
+				a = math.Min(a, coverage(math.Hypot(px-dotX, py-dotY)-dotGap))
 			}
 			if a > 0 {
 				img.SetNRGBA(x, y, color.NRGBA{0, 0, 0, uint8(a * 255)})

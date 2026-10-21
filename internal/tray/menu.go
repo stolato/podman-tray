@@ -78,6 +78,9 @@ func (a *App) build(s snapshot) {
 	}
 	a.on(login, done, func() { a.toggleLogin(login) })
 
+	a.notifyOff = systray.AddMenuItem("🔕 Notificações desativadas, abrir Ajustes", "")
+	a.on(a.notifyOff, done, a.openNotificationSettings)
+
 	systray.AddSeparator()
 	systray.AddMenuItem(VersionString(), "").Disable()
 	systray.AddSeparator()
@@ -143,6 +146,11 @@ func (a *App) update(s snapshot) {
 	a.mu.Unlock()
 
 	a.updateMachine(s.machine, machineAction)
+	if macos.NotificationsDenied() {
+		a.notifyOff.Show()
+	} else {
+		a.notifyOff.Hide()
+	}
 
 	running := 0
 	for _, c := range s.containers {
@@ -176,17 +184,35 @@ func (a *App) update(s snapshot) {
 
 		setEnabled(m.start, !isBusy && !c.Running())
 		setEnabled(m.stop, !isBusy && c.Running())
-		setEnabled(m.restart, !isBusy)
+		setEnabled(m.restart, !isBusy && c.Running())
 		setEnabled(m.shell, c.Running())
 	}
 
 	if s.err != nil {
 		a.header.SetTitle("⚠️ Podman indisponível")
 		systray.SetTitle("!")
+		a.setActiveIcon(false)
 		return
 	}
 	a.header.SetTitle(fmt.Sprintf("%d/%d containers rodando", running, len(s.containers)))
-	systray.SetTitle(fmt.Sprintf("%d/%d", running, len(s.containers)))
+	systray.SetTitle("")
+	a.setActiveIcon(running > 0)
+}
+
+// setActiveIcon adds a green dot to the pod while any container runs. Both
+// variants follow the menu bar's light/dark appearance.
+func (a *App) setActiveIcon(active bool) {
+	if a.iconSet && a.iconActive == active {
+		return
+	}
+	a.iconSet, a.iconActive = true, active
+	if active {
+		const pt = 16.0 / iconSize // systray shows the icon at 16pt
+		macos.SetBadgedIcon(trayIcon(true), dotX*pt, (iconSize-dotY)*pt, dotR*pt)
+	} else {
+		icon := trayIcon(false)
+		systray.SetTemplateIcon(icon, icon)
+	}
 }
 
 func (a *App) updateMachine(m *podman.Machine, action string) {

@@ -59,6 +59,21 @@ void pt_notify(const char *title, const char *body) {
   }];
 }
 
+// Blocks until the daemon answers, so don't call it from the main thread.
+bool pt_notifications_denied(void) {
+  __block UNAuthorizationStatus status = UNAuthorizationStatusNotDetermined;
+  dispatch_semaphore_t done = dispatch_semaphore_create(0);
+  [[UNUserNotificationCenter currentNotificationCenter]
+      getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+        status = settings.authorizationStatus;
+        dispatch_semaphore_signal(done);
+      }];
+  if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) != 0) {
+    return false;
+  }
+  return status == UNAuthorizationStatusDenied;
+}
+
 bool pt_confirm(const char *title, const char *msg, const char *button) {
   NSString *t = [NSString stringWithUTF8String:title];
   NSString *m = [NSString stringWithUTF8String:msg];

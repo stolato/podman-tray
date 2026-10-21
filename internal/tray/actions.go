@@ -186,6 +186,12 @@ func (a *App) stopMachine() {
 	}()
 }
 
+func (a *App) openNotificationSettings() {
+	if err := macos.OpenNotificationSettings(); err != nil {
+		macos.Notify("Erro ao abrir Ajustes", err.Error())
+	}
+}
+
 func (a *App) openURL(url string) {
 	if err := macos.OpenURL(url); err != nil {
 		macos.Notify("Erro ao abrir "+url, err.Error())

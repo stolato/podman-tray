@@ -42,6 +42,9 @@ type App struct {
 	layoutKey  string
 	done       chan struct{}
 	header     *systray.MenuItem
+	notifyOff  *systray.MenuItem // shown while notifications are denied in System Settings
+	iconSet    bool
+	iconActive bool
 	machine    *machineMenu
 	containers map[string]*containerMenu
 	cpuPrev    map[string]cpuSample
@@ -59,7 +62,7 @@ func New() *App {
 }
 
 func (a *App) OnReady() {
-	systray.SetTemplateIcon(trayIcon(), trayIcon())
+	a.setActiveIcon(false)
 	systray.SetTooltip(VersionString())
 	macos.SetupNotifications()
 	if err := macos.SyncLoginItem(); err != nil {
