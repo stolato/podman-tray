@@ -2,6 +2,7 @@ package macos
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,13 @@ func launchAgentPath() string {
 }
 
 func LoginItemEnabled() bool {
+	if useAppService() {
+		return appServiceOn()
+	}
+	return launchAgentEnabled()
+}
+
+func launchAgentEnabled() bool {
 	_, err := os.Stat(launchAgentPath())
 	return err == nil
 }
@@ -72,7 +80,12 @@ func renderLaunchAgent() ([]byte, error) {
 `, launchAgentLabel, argXML.String())), nil
 }
 
+// SetLoginItem turns the login item on or off. On macOS 13+ it can return
+// ErrLoginItemNeedsApproval, when the user still has to allow it in System Settings.
 func SetLoginItem(enabled bool) error {
+	if useAppService() {
+		return setAppService(enabled)
+	}
 	path := launchAgentPath()
 	if !enabled {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -91,11 +104,18 @@ func SetLoginItem(enabled bool) error {
 	return os.WriteFile(path, plist, 0o644)
 }
 
-// SyncLoginItem rewrites an existing LaunchAgent if it no longer matches the running binary
-// (e.g. it was moved, or the plist was written by an older version).
+// SyncLoginItem moves a LaunchAgent written by an older version to SMAppService when
+// available; otherwise it rewrites the LaunchAgent if it no longer matches the running
+// binary (e.g. it was moved, or the plist was written by an older version).
 func SyncLoginItem() error {
-	if !LoginItemEnabled() || !CanRunAtLogin() {
+	if !launchAgentEnabled() || !CanRunAtLogin() {
 		return nil
+	}
+	if useAppService() {
+		if err := setAppService(true); err != nil && !errors.Is(err, ErrLoginItemNeedsApproval) {
+			return err // keep the LaunchAgent, so the app still opens at login
+		}
+		return os.Remove(launchAgentPath())
 	}
 	current, err := os.ReadFile(launchAgentPath())
 	if err != nil {

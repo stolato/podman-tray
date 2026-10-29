@@ -88,3 +88,20 @@ func TestMachineInfo(t *testing.T) {
 		t.Errorf("Info() = %q, want %q", got, want)
 	}
 }
+
+func TestContainerGroup(t *testing.T) {
+	tests := []struct {
+		c    Container
+		want Group
+	}{
+		{Container{}, Group{}},
+		{Container{PodName: "db"}, Group{GroupPod, "db"}},
+		{Container{Labels: map[string]string{"com.docker.compose.project": "app"}}, Group{GroupCompose, "app"}},
+		{Container{Labels: map[string]string{"io.podman.compose.project": "app"}, PodName: "pod_app"}, Group{GroupCompose, "app"}},
+	}
+	for _, tt := range tests {
+		if got := tt.c.Group(); got != tt.want {
+			t.Errorf("%+v.Group() = %v, want %v", tt.c, got, tt.want)
+		}
+	}
+}

@@ -2,6 +2,7 @@
 package tray
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -28,6 +29,11 @@ type App struct {
 
 	refreshCh chan struct{}
 
+	// Canceled on exit so the `podman events` process doesn't outlive the app.
+	ctx        context.Context
+	stop       context.CancelFunc
+	eventsDone chan struct{} // closed when watchEvents returns; nil if it never started
+
 	mu            sync.Mutex
 	busy          map[string]string // container name -> action in progress
 	machineAction string            // machine action in progress ("start"/"stop"), if any
@@ -46,16 +52,20 @@ type App struct {
 	iconSet    bool
 	iconActive bool
 	machine    *machineMenu
+	groups     map[podman.Group]*groupMenu
 	containers map[string]*containerMenu
 	cpuPrev    map[string]cpuSample
 }
 
 func New() *App {
 	pm, err := podman.New()
+	ctx, stop := context.WithCancel(context.Background())
 	return &App{
 		pm:        pm,
 		pmErr:     err,
 		refreshCh: make(chan struct{}, 1),
+		ctx:       ctx,
+		stop:      stop,
 		busy:      map[string]string{},
 		cpuPrev:   map[string]cpuSample{},
 	}
@@ -71,11 +81,23 @@ func (a *App) OnReady() {
 	go a.loop()
 	go a.watchMenuOpen()
 	if a.pm != nil {
+		a.eventsDone = make(chan struct{})
 		go a.watchEvents()
 	}
 }
 
-func (a *App) OnExit() {}
+// OnExit runs before the app terminates. Canceling the context kills `podman events`;
+// waiting for watchEvents makes sure that happened before the process is gone.
+func (a *App) OnExit() {
+	a.stop()
+	if a.eventsDone == nil {
+		return
+	}
+	select {
+	case <-a.eventsDone:
+	case <-time.After(2 * time.Second):
+	}
+}
 
 func (a *App) triggerRefresh() {
 	select {
@@ -166,7 +188,8 @@ func (a *App) refresh() snapshot {
 
 	keys := make([]string, len(s.containers))
 	for i, c := range s.containers {
-		keys[i] = c.Name() + "[" + c.PortList() + "]"
+		g := c.Group()
+		keys[i] = g.Kind + ":" + g.Name + "/" + c.Name() + "[" + c.PortList() + "]"
 	}
 	key := fmt.Sprintf("%s|%t|%t", strings.Join(keys, ","), s.err != nil, s.machineStopped)
 	if key != a.layoutKey {

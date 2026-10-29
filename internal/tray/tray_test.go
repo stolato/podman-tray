@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -66,5 +67,89 @@ func TestVersionString(t *testing.T) {
 	version = "1.2.3"
 	if got, want := VersionString(), "Podman Tray 1.2.3"; got != want {
 		t.Errorf("VersionString() = %q, want %q", got, want)
+	}
+}
+
+func TestBulkTargets(t *testing.T) {
+	cs := []podman.Container{
+		{Names: []string{"up"}, State: "running"},
+		{Names: []string{"paused"}, State: "paused"},
+		{Names: []string{"exited"}, State: "exited"},
+		{Names: []string{"created"}, State: "created"},
+	}
+	tests := map[string][]bulkTarget{
+		"start": {{"paused", "unpause"}, {"exited", "start"}, {"created", "start"}},
+		"stop":  {{"up", "stop"}, {"paused", "stop"}},
+	}
+	for action, want := range tests {
+		if got := bulkTargets(cs, action); !slices.Equal(got, want) {
+			t.Errorf("bulkTargets(%q) = %v, want %v", action, got, want)
+		}
+	}
+}
+
+func TestGroupContainers(t *testing.T) {
+	compose := func(name, project string) podman.Container {
+		return podman.Container{Names: []string{name}, Labels: map[string]string{"com.docker.compose.project": project}}
+	}
+	cs := []podman.Container{
+		compose("api", "web"),
+		{Names: []string{"cache"}},
+		{Names: []string{"db"}, PodName: "data"},
+		compose("ui", "web"),
+	}
+	groups, loose := groupContainers(cs)
+
+	var got []string
+	for _, g := range groups {
+		for _, c := range g.containers {
+			got = append(got, g.Kind+":"+g.Name+"/"+c.Name())
+		}
+	}
+	want := []string{"pod:data/db", "compose:web/api", "compose:web/ui"}
+	if !slices.Equal(got, want) {
+		t.Errorf("groups = %v, want %v", got, want)
+	}
+	if len(loose) != 1 || loose[0].Name() != "cache" {
+		t.Errorf("loose = %v, want [cache]", loose)
+	}
+}
+
+func TestGroupStateIcon(t *testing.T) {
+	up := podman.Container{State: "running"}
+	down := podman.Container{State: "exited"}
+	tests := []struct {
+		cs   []podman.Container
+		busy bool
+		want string
+	}{
+		{[]podman.Container{up, up}, false, "🟢"},
+		{[]podman.Container{up, down}, false, "🟡"},
+		{[]podman.Container{down, down}, false, "⚪️"},
+		{[]podman.Container{up, down}, true, "⏳"},
+	}
+	for _, tt := range tests {
+		st := &groupState{}
+		for i, c := range tt.cs {
+			st.add(c, tt.busy && i == 0)
+		}
+		if got := st.icon(); got != tt.want {
+			t.Errorf("icon() = %s, want %s", got, tt.want)
+		}
+	}
+}
+
+func TestProjectPods(t *testing.T) {
+	web := podman.Group{Kind: podman.GroupCompose, Name: "web"}
+	label := map[string]string{"io.podman.compose.project": "web"}
+	cs := []podman.Container{
+		{Names: []string{"api"}, Labels: label, PodName: "pod_web"},
+		{Names: []string{"ui"}, Labels: label, PodName: "pod_web"},
+		{Names: []string{"worker"}, Labels: label, PodName: "shared"},
+		{Names: []string{"other"}, PodName: "shared"}, // not in the project: keep its pod
+		{Names: []string{"loose"}},
+	}
+	if got, want := projectPods(cs, web), []string{"pod_web"}; !slices.Equal(got, want) {
+		t.Errorf("projectPods() = %v, want %v", got, want)
 	}
 }

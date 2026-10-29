@@ -71,17 +71,42 @@ func (p *Client) ListContainers() ([]Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cs []Container
-	if err := json.Unmarshal(out, &cs); err != nil {
+	var all []Container
+	if err := json.Unmarshal(out, &all); err != nil {
 		return nil, fmt.Errorf("parse ps: %w", err)
+	}
+	// Infra containers are pod plumbing: `pod start/stop` take care of them.
+	cs := all[:0]
+	for _, c := range all {
+		if !c.IsInfra {
+			cs = append(cs, c)
+		}
 	}
 	sort.Slice(cs, func(i, j int) bool { return cs[i].Name() < cs[j].Name() })
 	return cs, nil
 }
 
-// ContainerAction runs start, stop or restart on a container.
+// ContainerAction runs start, stop, restart, pause or unpause on a container.
 func (p *Client) ContainerAction(action, name string) error {
 	_, err := p.run(2*time.Minute, action, name)
+	return err
+}
+
+// PodAction runs start or stop on a pod, including its infra container.
+func (p *Client) PodAction(action, pod string) error {
+	_, err := p.run(2*time.Minute, "pod", action, pod)
+	return err
+}
+
+// RemoveContainer stops and removes a container. Volumes are kept.
+func (p *Client) RemoveContainer(name string) error {
+	_, err := p.run(2*time.Minute, "rm", "-f", name)
+	return err
+}
+
+// RemovePod stops and removes a pod with all its containers. Volumes are kept.
+func (p *Client) RemovePod(name string) error {
+	_, err := p.run(2*time.Minute, "pod", "rm", "-f", name)
 	return err
 }
 

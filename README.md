@@ -10,12 +10,15 @@ App de barra de menu para macOS, escrito em Go, para listar e controlar containe
 - **Submenu por container**:
   - status, **CPU/memória** e imagem
   - **portas clicáveis**: `🌐 localhost:8080 → 80/tcp` abre `http://localhost:8080` no navegador (portas UDP aparecem, mas não são clicáveis)
-  - **Start**, **Stop**, **Restart**
+  - **Start**, **Stop**, **Restart** e **Pause**/**Unpause**
   - **Logs…** (`logs -f`), **Shell…** (`exec -it`, usa `bash` se existir, senão `sh`) e **Inspect…**, abertos no Terminal
-- **Iniciar todos** / **Parar todos**: roda em paralelo e manda uma única notificação de resumo
+  - **🗑 Remover…** (`rm -f`), com confirmação
+- **Grupos**: containers de um mesmo projeto do compose (label `com.docker.compose.project` ou `io.podman.compose.project`) ou de um mesmo pod ficam juntos num item `🟢 projeto (2/3)` (🟢 todos rodando, 🟡 parte, ⚪️ nenhum), com os containers no submenu e **Iniciar grupo** / **Parar grupo**. Pods usam `podman pod start/stop`; projetos do compose agem em cada container. Se o container tem os dois (o `podman-compose` cria um pod `pod_<projeto>`), vale o projeto. Containers *infra* dos pods não aparecem
+- **Remover grupo**, com confirmação: **🗑 Remover pod…** roda `podman pod rm -f` (o pod e todos os containers dele). **🗑 Remover containers…** remove os containers de um projeto do compose e o pod `pod_<projeto>` do `podman-compose`; como o app não tem o arquivo do compose, não é um `compose down`: redes ficam, e um `compose up` recria tudo. Nenhuma remoção apaga volumes
+- **Iniciar todos** / **Parar todos**: roda em paralelo e manda uma única notificação de resumo (containers pausados são retomados com `unpause` ao iniciar e parados ao parar)
 - **Podman machine**: mostra o estado (🟢 rodando, 🟡 iniciando, ⚪️ parada), nome, CPUs e memória; só habilita **Iniciar** com a machine parada e **Parar** com ela rodando, e pede confirmação antes de parar
 - **Notificações** nativas do macOS (com o ícone do app) ao concluir ações ou em caso de erro
-- **Abrir ao iniciar sessão** via LaunchAgent (`~/Library/LaunchAgents/com.podman-tray.plist`)
+- **Abrir ao iniciar sessão**: no macOS 13+ registra o app em **Ajustes do Sistema → Geral → Itens de Início** (`SMAppService`); no macOS 12, ou fora do `.app`, usa um LaunchAgent (`~/Library/LaunchAgents/com.podman-tray.plist`)
 
 ### Como a lista se mantém atualizada
 
@@ -39,7 +42,7 @@ Compila, gera `dist/Podman Tray.app`, copia para `~/Applications` e abre. Para l
 
 Na primeira execução o macOS pede permissão para o app enviar notificações. Na primeira vez que usar **Logs…**, **Shell…** ou **Inspect…**, pede também permissão para controlar o Terminal.
 
-Para remover (app e LaunchAgent):
+Para remover (app e LaunchAgent). No macOS 13+, desmarque antes **Abrir ao iniciar sessão** no menu, para tirar o app dos Itens de Início:
 
 ```bash
 make uninstall
@@ -95,12 +98,13 @@ A opção **Abrir ao iniciar sessão** fica desabilitada no `make run`, porque o
 ```
 cmd/podman-tray/      # main: só inicia o systray
 internal/podman/      # wrapper do CLI do podman: containers, stats, events, machine
-internal/macos/       # notificações e diálogo nativos (Objective-C), Terminal, navegador, LaunchAgent
+internal/macos/       # notificações, diálogo e login item nativos (Objective-C), Terminal, navegador, LaunchAgent
 internal/tray/
   app.go              # ciclo de vida e loop de atualização (intervalos e backoff)
   events.go           # stream de `podman events` com reconexão e debounce
   menu.go             # montagem e atualização do menu
   actions.go          # start/stop/restart, ações em lote, machine, login item
+  group.go            # agrupamento por projeto do compose / pod
   stats.go            # cálculo de CPU/memória
   icon.go             # ícone da barra de menu (desenhado em código)
 tools/genicon/        # gerador do ícone do app
@@ -116,4 +120,6 @@ O menu só é recriado quando muda o conjunto de containers (ou suas portas) ou 
 - **Notificações com o ícone do Editor de Scripts**: o app só envia notificações próprias (com o ícone dele) quando tem permissão; sem ela, usa o `osascript`. Libere em **Ajustes do Sistema → Notificações → Podman Tray** — vale na hora, sem reiniciar. No `make run` (fora do `.app`) é sempre `osascript`.
   Se o pedido de permissão nunca aparece, o macOS pode estar com um registro antigo do app: `make install` já limpa isso, mas dá para conferir com `lsregister -dump | grep -A3 com.podman-tray`.
 - **Ícone genérico no Finder/Dock** depois de instalar: cache do macOS. Rode `killall Finder Dock`.
-- **Login item depois de mover o app**: dentro do `.app`, o LaunchAgent abre o app pelo bundle id (`open -b com.podman-tray`), então mover o app não quebra nada. Fora do bundle, o app reescreve o LaunchAgent sozinho ao iniciar.
+- **Login item depois de mover o app**: no macOS 13+ o login item segue o app. No macOS 12, o LaunchAgent abre o app pelo bundle id (`open -b com.podman-tray`), então mover o app também não quebra nada. Fora do bundle, o app reescreve o LaunchAgent sozinho ao iniciar.
+- **Migração do LaunchAgent**: versões antigas usavam sempre o LaunchAgent. No macOS 13+, ao iniciar, o app registra o login item pelo `SMAppService` e apaga o plist antigo.
+- **"Abrir ao iniciar sessão" não fica marcado**: o login item foi desativado em **Ajustes do Sistema → Geral → Itens de Início**. O app abre essa tela; ative o Podman Tray lá.

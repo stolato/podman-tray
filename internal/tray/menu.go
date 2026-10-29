@@ -14,15 +14,21 @@ type machineMenu struct {
 	root, info, start, stop *systray.MenuItem
 }
 
+type groupMenu struct {
+	root, start, stop, remove *systray.MenuItem
+}
+
 type containerMenu struct {
 	root, status, stats, image *systray.MenuItem
 	ports                      []*systray.MenuItem // clickable (tcp) port links
 	start, stop, restart       *systray.MenuItem
+	pause, unpause             *systray.MenuItem // only one is shown, depending on the state
 	logs, shell, inspect       *systray.MenuItem
+	remove                     *systray.MenuItem
 }
 
-// build recreates the whole menu. Only called when the set of containers (or error state)
-// changes; otherwise update() edits the existing items in place.
+// build recreates the whole menu. Only called when the set of containers (their groups or
+// ports, or the error state) changes; otherwise update() edits the existing items in place.
 func (a *App) build(s snapshot) {
 	if a.done != nil {
 		close(a.done)
@@ -32,6 +38,7 @@ func (a *App) build(s snapshot) {
 
 	systray.ResetMenu()
 	a.machine = nil
+	a.groups = map[podman.Group]*groupMenu{}
 	a.containers = map[string]*containerMenu{}
 
 	a.header = systray.AddMenuItem("", "")
@@ -50,14 +57,18 @@ func (a *App) build(s snapshot) {
 	if s.err == nil && len(s.containers) == 0 {
 		systray.AddMenuItem("Nenhum container encontrado", "").Disable()
 	}
-	for _, c := range s.containers {
-		a.containers[c.Name()] = a.buildContainer(c, done)
+	groups, loose := groupContainers(s.containers)
+	for _, g := range groups {
+		a.groups[g.Group] = a.buildGroup(g, done)
+	}
+	for _, c := range loose {
+		a.containers[c.Name()] = a.buildContainer(c, nil, done)
 	}
 
 	if a.pm != nil {
 		systray.AddSeparator()
-		a.on(systray.AddMenuItem("▶ Iniciar todos", ""), done, func() { a.bulk("start") })
-		a.on(systray.AddMenuItem("■ Parar todos", ""), done, func() { a.bulk("stop") })
+		a.on(systray.AddMenuItem("▶ Iniciar todos", ""), done, func() { a.bulk("start", nil) })
+		a.on(systray.AddMenuItem("■ Parar todos", ""), done, func() { a.bulk("stop", nil) })
 
 		systray.AddSeparator()
 		a.machine = &machineMenu{root: systray.AddMenuItem("Podman machine", "")}
@@ -87,9 +98,41 @@ func (a *App) build(s snapshot) {
 	a.on(systray.AddMenuItem("Sair", ""), done, systray.Quit)
 }
 
-func (a *App) buildContainer(c podman.Container, done <-chan struct{}) *containerMenu {
+// buildGroup adds a compose project or pod, with its containers in the submenu.
+func (a *App) buildGroup(g containerGroup, done <-chan struct{}) *groupMenu {
+	kind := "Projeto compose"
+	if g.Kind == podman.GroupPod {
+		kind = "Pod"
+	}
+	m := &groupMenu{root: systray.AddMenuItem(g.Name, "")}
+	m.root.AddSubMenuItem(kind+": "+g.Name, "").Disable()
+	m.start = m.root.AddSubMenuItem("▶ Iniciar grupo", "")
+	m.stop = m.root.AddSubMenuItem("■ Parar grupo", "")
+	m.root.AddSeparator()
+	for _, c := range g.containers {
+		a.containers[c.Name()] = a.buildContainer(c, m.root, done)
+	}
+	m.root.AddSeparator()
+	remove := "🗑 Remover containers…"
+	if g.Kind == podman.GroupPod {
+		remove = "🗑 Remover pod…"
+	}
+	m.remove = m.root.AddSubMenuItem(remove, "")
+	a.on(m.start, done, func() { a.groupAction("start", g.Group) })
+	a.on(m.stop, done, func() { a.groupAction("stop", g.Group) })
+	a.on(m.remove, done, func() { a.removeGroup(g.Group) })
+	return m
+}
+
+// buildContainer adds a container to the top-level menu, or under parent (its group).
+func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done <-chan struct{}) *containerMenu {
 	name := c.Name()
-	m := &containerMenu{root: systray.AddMenuItem(name, "")}
+	m := &containerMenu{}
+	if parent != nil {
+		m.root = parent.AddSubMenuItem(name, "")
+	} else {
+		m.root = systray.AddMenuItem(name, "")
+	}
 	m.status = m.root.AddSubMenuItem("", "")
 	m.status.Disable()
 	m.stats = m.root.AddSubMenuItem("", "")
@@ -110,14 +153,21 @@ func (a *App) buildContainer(c podman.Container, done <-chan struct{}) *containe
 	m.start = m.root.AddSubMenuItem("▶ Start", "podman start")
 	m.stop = m.root.AddSubMenuItem("■ Stop", "podman stop")
 	m.restart = m.root.AddSubMenuItem("↻ Restart", "podman restart")
+	m.pause = m.root.AddSubMenuItem("⏸ Pause", "podman pause")
+	m.unpause = m.root.AddSubMenuItem("⏯ Unpause", "podman unpause")
+	m.unpause.Hide()
 	m.root.AddSeparator()
 	m.logs = m.root.AddSubMenuItem("Logs…", "podman logs -f no Terminal")
 	m.shell = m.root.AddSubMenuItem("Shell…", "podman exec -it no Terminal")
 	m.inspect = m.root.AddSubMenuItem("Inspect…", "podman inspect no Terminal")
+	m.root.AddSeparator()
+	m.remove = m.root.AddSubMenuItem("🗑 Remover…", "podman rm -f")
 
 	a.on(m.start, done, func() { a.containerAction("start", name) })
 	a.on(m.stop, done, func() { a.containerAction("stop", name) })
 	a.on(m.restart, done, func() { a.containerAction("restart", name) })
+	a.on(m.pause, done, func() { a.containerAction("pause", name) })
+	a.on(m.unpause, done, func() { a.containerAction("unpause", name) })
 	a.on(m.logs, done, func() {
 		a.terminal(a.pm.Command("logs", "-f", "--tail", "200", name))
 	})
@@ -127,6 +177,7 @@ func (a *App) buildContainer(c podman.Container, done <-chan struct{}) *containe
 	a.on(m.inspect, done, func() {
 		a.terminal(a.pm.Command("inspect", name) + " | less")
 	})
+	a.on(m.remove, done, func() { a.removeContainer(name) })
 	return m
 }
 
@@ -153,16 +204,24 @@ func (a *App) update(s snapshot) {
 	}
 
 	running := 0
+	groups := map[podman.Group]*groupState{}
 	for _, c := range s.containers {
+		action, isBusy := busy[c.Name()]
 		if c.Running() {
 			running++
 		}
+		if g := c.Group(); a.groups[g] != nil {
+			if groups[g] == nil {
+				groups[g] = &groupState{}
+			}
+			groups[g].add(c, isBusy)
+		}
+
 		m := a.containers[c.Name()]
 		if m == nil {
 			continue
 		}
 
-		action, isBusy := busy[c.Name()]
 		icon := stateIcon(c.State)
 		status := c.Status
 		if isBusy {
@@ -182,10 +241,25 @@ func (a *App) update(s snapshot) {
 			setEnabled(p, c.Running())
 		}
 
-		setEnabled(m.start, !isBusy && !c.Running())
-		setEnabled(m.stop, !isBusy && c.Running())
+		setEnabled(m.start, !isBusy && !c.Running() && !c.Paused())
+		setEnabled(m.stop, !isBusy && (c.Running() || c.Paused()))
 		setEnabled(m.restart, !isBusy && c.Running())
+		setEnabled(m.pause, !isBusy && c.Running())
+		setEnabled(m.unpause, !isBusy)
+		if c.Paused() {
+			m.pause.Hide()
+			m.unpause.Show()
+		} else {
+			m.unpause.Hide()
+			m.pause.Show()
+		}
 		setEnabled(m.shell, c.Running())
+		setEnabled(m.remove, !isBusy)
+	}
+	for g, m := range a.groups {
+		if st := groups[g]; st != nil {
+			st.apply(g, m)
+		}
 	}
 
 	if s.err != nil {

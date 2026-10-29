@@ -46,12 +46,45 @@ func portRange(start, n int) string {
 }
 
 type Container struct {
-	ID     string   `json:"Id"`
-	Names  []string `json:"Names"`
-	Image  string   `json:"Image"`
-	State  string   `json:"State"`  // running, exited, created, paused...
-	Status string   `json:"Status"` // human readable, e.g. "Up 4 hours"
-	Ports  []Port   `json:"Ports"`
+	ID      string            `json:"Id"`
+	Names   []string          `json:"Names"`
+	Image   string            `json:"Image"`
+	State   string            `json:"State"`  // running, exited, created, paused...
+	Status  string            `json:"Status"` // human readable, e.g. "Up 4 hours"
+	Ports   []Port            `json:"Ports"`
+	Labels  map[string]string `json:"Labels"`
+	PodName string            `json:"PodName"`
+	IsInfra bool              `json:"IsInfra"` // a pod's placeholder container
+}
+
+// Group kinds.
+const (
+	GroupCompose = "compose"
+	GroupPod     = "pod"
+)
+
+// Group is a set of containers managed together: a compose project or a pod.
+// The zero value means the container isn't in one.
+type Group struct {
+	Kind string // GroupCompose or GroupPod
+	Name string
+}
+
+// composeLabels hold the project name, set by docker compose and podman-compose.
+var composeLabels = []string{"com.docker.compose.project", "io.podman.compose.project"}
+
+// Group is the compose project the container belongs to, or else its pod. podman-compose
+// also puts a project's containers in a pod (pod_<project>), so the project wins.
+func (c Container) Group() Group {
+	for _, l := range composeLabels {
+		if p := c.Labels[l]; p != "" {
+			return Group{Kind: GroupCompose, Name: p}
+		}
+	}
+	if c.PodName != "" {
+		return Group{Kind: GroupPod, Name: c.PodName}
+	}
+	return Group{}
 }
 
 func (c Container) Name() string {
@@ -66,6 +99,11 @@ func (c Container) Name() string {
 
 func (c Container) Running() bool {
 	return c.State == "running"
+}
+
+// Paused containers can't be started, only unpaused (or stopped).
+func (c Container) Paused() bool {
+	return c.State == "paused"
 }
 
 func (c Container) PortList() string {
