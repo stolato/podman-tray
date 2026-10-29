@@ -55,12 +55,6 @@ func TestPortURL(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	if got, want := shellQuote("it's"), `'it'\''s'`; got != want {
-		t.Errorf("shellQuote() = %q, want %q", got, want)
-	}
-}
-
 func TestPickMachine(t *testing.T) {
 	tests := []struct {
 		ms   []Machine

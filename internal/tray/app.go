@@ -4,6 +4,7 @@ package tray
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,7 +12,7 @@ import (
 
 	"fyne.io/systray"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -93,9 +94,9 @@ func New() *App {
 func (a *App) OnReady() {
 	a.setActiveIcon(false)
 	systray.SetTooltip(VersionString())
-	macos.SetupNotifications()
-	if err := macos.SyncLoginItem(); err != nil {
-		macos.Notify("Erro ao atualizar login item", err.Error())
+	desktop.SetupNotifications()
+	if err := desktop.SyncLoginItem(); err != nil {
+		desktop.Notify("Erro ao atualizar login item", err.Error())
 	}
 	go a.loop()
 	go a.watchMenuOpen()
@@ -166,6 +167,15 @@ func (a *App) watchMenuOpen() {
 	}
 }
 
+// menuOpenEvents is false on Windows, where systray doesn't report the menu opening.
+var menuOpenEvents = runtime.GOOS != "windows"
+
+// wantDetails reports whether to fetch what only the menu shows (stats, disk usage):
+// while it's in use, or on every refresh where there's no telling.
+func (a *App) wantDetails() bool {
+	return !menuOpenEvents || a.menuRecentlyOpened()
+}
+
 func (a *App) menuRecentlyOpened() bool {
 	return time.Since(time.Unix(0, a.menuOpenedAt.Load())) < statsWindow
 }
@@ -194,7 +204,7 @@ func (a *App) fetch() snapshot {
 		return s
 	}
 	// Disk usage and stats are only shown in the menu, so skip them while nobody is looking.
-	if a.menuRecentlyOpened() && (a.diskStale.Swap(false) || time.Since(a.diskAt) > diskInterval) {
+	if a.wantDetails() && (a.diskStale.Swap(false) || time.Since(a.diskAt) > diskInterval) {
 		a.diskAt = time.Now()
 		if du, err := a.pm.DiskUsage(); err == nil {
 			a.disk = du
@@ -203,7 +213,7 @@ func (a *App) fetch() snapshot {
 			a.emptyPods = pods
 		}
 	}
-	if a.menuRecentlyOpened() && anyRunning(cs) {
+	if a.wantDetails() && anyRunning(cs) {
 		if ss, err := a.pm.Stats(); err == nil {
 			s.statsAt = time.Now()
 			s.stats = make(map[string]podman.Stats, len(ss))

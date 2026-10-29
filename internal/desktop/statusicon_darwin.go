@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 /*
 #include <stdlib.h>

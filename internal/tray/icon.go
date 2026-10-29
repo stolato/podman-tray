@@ -19,9 +19,14 @@ const (
 	dotGap = 8.0
 )
 
-// trayIcon draws a pea pod (capsule outline with three peas) as a black mask,
+// trayIcon draws a pea pod (capsule outline with three peas) as a black mask PNG,
 // with room cut out for the status dot when withDot is set.
 func trayIcon(withDot bool) []byte {
+	return encodePNG(podMask(withDot))
+}
+
+// podMask is the pod shape as black with anti-aliased alpha.
+func podMask(withDot bool) *image.NRGBA {
 	const size = iconSize
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 
@@ -56,6 +61,10 @@ func trayIcon(withDot bool) []byte {
 		}
 	}
 
+	return img
+}
+
+func encodePNG(img image.Image) []byte {
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()

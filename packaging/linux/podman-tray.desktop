@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Podman Tray
+Comment=Containers do Podman na bandeja do sistema
+Exec=podman-tray
+Icon=podman-tray
+Terminal=false
+Categories=Development;Utility;

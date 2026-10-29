@@ -1,5 +1,4 @@
-// Package macos holds the macOS integrations: notifications, dialogs, Terminal and login item.
-package macos
+package desktop
 
 import (
 	"fmt"
@@ -23,11 +22,11 @@ func OpenURL(url string) error {
 	return exec.Command("open", url).Run()
 }
 
-// OpenInTerminal runs a shell command in a new Terminal.app window.
-func OpenInTerminal(command string) error {
+// OpenInTerminal runs argv in a new Terminal.app window, through less if pager.
+func OpenInTerminal(argv []string, pager bool) error {
 	return exec.Command("osascript",
 		"-e", `tell application "Terminal" to activate`,
-		"-e", fmt.Sprintf(`tell application "Terminal" to do script %s`, appleScriptString(command)),
+		"-e", fmt.Sprintf(`tell application "Terminal" to do script %s`, appleScriptString(shellCommand(argv, pager))),
 	).Run()
 }
 

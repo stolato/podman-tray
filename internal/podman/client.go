@@ -21,17 +21,10 @@ type Client struct {
 	env []string
 }
 
-// Apps launched from Finder/launchd get a minimal PATH, so look in the usual install locations too.
-var candidates = []string{
-	"/opt/homebrew/bin/podman",
-	"/usr/local/bin/podman",
-	"/opt/podman/bin/podman",
-}
-
 func New() (*Client, error) {
 	bin, err := exec.LookPath("podman")
 	if err != nil {
-		for _, c := range candidates {
+		for _, c := range candidates { // per OS, in paths_*.go
 			if _, statErr := os.Stat(c); statErr == nil {
 				bin = c
 				break
@@ -42,17 +35,31 @@ func New() (*Client, error) {
 		return nil, errors.New("podman não encontrado no PATH")
 	}
 
-	path := strings.Join([]string{filepath.Dir(bin), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", os.Getenv("PATH")}, ":")
+	// podman finds its helpers (e.g. gvproxy, vfkit) through PATH.
+	dirs := append([]string{filepath.Dir(bin)}, extraPath...)
+	path := strings.Join(append(dirs, os.Getenv("PATH")), string(os.PathListSeparator))
 	env := append(os.Environ(), "PATH="+path)
 	return &Client{bin: bin, env: env}, nil
+}
+
+// Bin is the podman executable, for commands run in a terminal.
+func (p *Client) Bin() string {
+	return p.bin
+}
+
+// command builds a podman invocation that, on Windows, doesn't flash a console window.
+func (p *Client) command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, p.bin, args...)
+	cmd.Env = p.env
+	hideWindow(cmd)
+	return cmd
 }
 
 func (p *Client) run(timeout time.Duration, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, p.bin, args...)
-	cmd.Env = p.env
+	cmd := p.command(ctx, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -184,8 +191,7 @@ func (p *Client) Stats() ([]Stats, error) {
 // Events streams container events to onEvent until the podman process exits or ctx is done.
 // started is called once the process is running.
 func (p *Client) Events(ctx context.Context, started func(), onEvent func(Event)) error {
-	cmd := exec.CommandContext(ctx, p.bin, "events", "--format", "json", "--filter", "type=container")
-	cmd.Env = p.env
+	cmd := p.command(ctx, "events", "--format", "json", "--filter", "type=container")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
@@ -258,17 +264,4 @@ func (p *Client) StartMachine(name string) error {
 func (p *Client) StopMachine(name string) error {
 	_, err := p.run(2*time.Minute, "machine", "stop", name)
 	return err
-}
-
-// Command renders a shell command line invoking podman, for use in Terminal.
-func (p *Client) Command(args ...string) string {
-	parts := []string{shellQuote(p.bin)}
-	for _, a := range args {
-		parts = append(parts, shellQuote(a))
-	}
-	return strings.Join(parts, " ")
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

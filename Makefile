@@ -5,7 +5,8 @@ APP     := dist/build.noindex/Podman Tray.app
 STAGING := dist/dmg.noindex
 INSTALL := $(HOME)/Applications
 ICNS    := packaging/AppIcon.icns
-VERSION := $(shell /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" packaging/Info.plist)
+# Read with sed, not PlistBuddy, so the Linux/Windows builds also work off macOS.
+VERSION := $(shell sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' packaging/Info.plist)
 BUILD   := $(shell date +%Y%m%d%H%M)
 DMG     := dist/Podman-Tray-$(VERSION).dmg
 
@@ -39,7 +40,7 @@ endif
 # deleted DMG staging folder) make macOS fail to find the app for notification permissions.
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
-.PHONY: run build universal test vet icon cert app install dmg uninstall clean
+.PHONY: run build universal test vet icon cert app install dmg linux windows uninstall clean
 
 run:
 	go run -ldflags="$(LDFLAGS)" ./cmd/$(BIN)
@@ -105,6 +106,35 @@ ifneq ($(NOTARY_PROFILE),)
 	xcrun stapler staple "$(DMG)"
 endif
 	@echo "→ $(DMG)"
+
+# Linux and Windows builds are pure Go (no cgo), so they cross-compile from any OS.
+LINUX_PKG := dist/linux.noindex
+
+# dist/podman-tray-<version>-linux-<arch>.tar.gz: binary, icon, .desktop and install.sh.
+linux:
+	@for arch in amd64 arm64; do \
+		dir=$(LINUX_PKG)/podman-tray-$(VERSION)-linux-$$arch; \
+		rm -rf $$dir && mkdir -p $$dir && \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags="$(LDFLAGS)" -o $$dir/$(BIN) ./cmd/$(BIN) && \
+		cp packaging/AppIcon.png $$dir/podman-tray.png && \
+		cp packaging/linux/podman-tray.desktop packaging/linux/install.sh $$dir/ && \
+		tar -czf dist/podman-tray-$(VERSION)-linux-$$arch.tar.gz -C $(LINUX_PKG) podman-tray-$(VERSION)-linux-$$arch && \
+		echo "→ dist/podman-tray-$(VERSION)-linux-$$arch.tar.gz" || exit 1; \
+	done
+	rm -rf $(LINUX_PKG)
+
+# dist/podman-tray-<version>-windows-<arch>.zip. -H=windowsgui: no console window.
+windows:
+	@mkdir -p dist
+	@for arch in amd64 arm64; do \
+		dir=dist/windows.noindex/$$arch; \
+		rm -rf $$dir && mkdir -p $$dir && \
+		CGO_ENABLED=0 GOOS=windows GOARCH=$$arch go build -ldflags="$(LDFLAGS) -H=windowsgui" -o $$dir/$(BIN).exe ./cmd/$(BIN) && \
+		rm -f dist/podman-tray-$(VERSION)-windows-$$arch.zip && \
+		(cd $$dir && zip -q ../../podman-tray-$(VERSION)-windows-$$arch.zip $(BIN).exe) && \
+		echo "→ dist/podman-tray-$(VERSION)-windows-$$arch.zip" || exit 1; \
+	done
+	rm -rf dist/windows.noindex
 
 uninstall:
 	-pkill -x $(BIN)

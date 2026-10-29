@@ -2,11 +2,12 @@ package tray
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"fyne.io/systray"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -97,8 +98,8 @@ func (a *App) build(s snapshot) {
 
 	// Set-and-forget preferences live in a submenu, to keep the top level short.
 	options := systray.AddMenuItem("⚙️ Opções", "")
-	login := options.AddSubMenuItemCheckbox("Abrir ao iniciar sessão", "", macos.LoginItemEnabled())
-	if !macos.CanRunAtLogin() {
+	login := options.AddSubMenuItemCheckbox("Abrir ao iniciar sessão", "", desktop.LoginItemEnabled())
+	if !desktop.CanRunAtLogin() {
 		login.SetTooltip("Disponível apenas no binário compilado (make app)")
 		login.Disable()
 	}
@@ -109,7 +110,7 @@ func (a *App) build(s snapshot) {
 
 	// Not under Opções: it's a warning, only shown while notifications are off.
 
-	a.notifyOff = systray.AddMenuItem("🔕 Notificações desativadas, abrir Ajustes", "")
+	a.notifyOff = systray.AddMenuItem("🔕 Notificações desativadas, abrir configurações", "")
 	a.on(a.notifyOff, done, a.openNotificationSettings)
 
 	systray.AddSeparator()
@@ -197,13 +198,13 @@ func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done 
 	a.on(m.pause, done, func() { a.containerAction("pause", name) })
 	a.on(m.unpause, done, func() { a.containerAction("unpause", name) })
 	a.on(m.logs, done, func() {
-		a.terminal(a.pm.Command("logs", "-f", "--tail", "200", name))
+		a.terminal(false, "logs", "-f", "--tail", "200", name)
 	})
 	a.on(m.shell, done, func() {
-		a.terminal(a.pm.Command("exec", "-it", name, "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"))
+		a.terminal(false, "exec", "-it", name, "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh")
 	})
 	a.on(m.inspect, done, func() {
-		a.terminal(a.pm.Command("inspect", name) + " | less")
+		a.terminal(true, "inspect", name)
 	})
 	a.on(m.remove, done, func() { a.removeContainer(name) })
 	return m
@@ -231,7 +232,7 @@ func (a *App) update(s snapshot) {
 	a.mu.Unlock()
 
 	a.updateMachine(s.machine, machineAction)
-	if macos.NotificationsDenied() {
+	if desktop.NotificationsDenied() {
 		a.notifyOff.Show()
 	} else {
 		a.notifyOff.Hide()
@@ -307,26 +308,25 @@ func (a *App) update(s snapshot) {
 	a.setActiveIcon(running > 0)
 }
 
-// setActiveIcon adds a green dot to the pod while any container runs. Both
-// variants follow the menu bar's light/dark appearance.
+// setActiveIcon adds a green dot to the pod while any container runs.
 func (a *App) setActiveIcon(active bool) {
 	if a.iconSet && a.iconActive == active {
 		return
 	}
 	a.iconSet, a.iconActive = true, active
-	if active {
-		const pt = 16.0 / iconSize // systray shows the icon at 16pt
-		macos.SetBadgedIcon(trayIcon(true), dotX*pt, (iconSize-dotY)*pt, dotR*pt)
-	} else {
-		icon := trayIcon(false)
-		systray.SetTemplateIcon(icon, icon)
-	}
+	applyTrayIcon(active) // per OS, in trayicon_*.go
 }
 
 func (a *App) updateMachine(m *podman.Machine, action string) {
 	if a.machine == nil {
 		return
 	}
+	// On Linux podman runs natively; a machine is the exception, so don't advertise one.
+	if m == nil && action == "" && runtime.GOOS == "linux" {
+		a.machine.root.Hide()
+		return
+	}
+	a.machine.root.Show()
 	state := "não encontrada"
 	switch {
 	case action == "start":

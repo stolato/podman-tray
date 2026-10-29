@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc

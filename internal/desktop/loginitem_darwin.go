@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
@@ -23,10 +23,6 @@ const (
 	statusEnabled          = 1
 	statusRequiresApproval = 2
 )
-
-// ErrLoginItemNeedsApproval means the login item is registered but turned off in
-// System Settings > General > Login Items, which SetLoginItem has opened.
-var ErrLoginItemNeedsApproval = errors.New("ative o Podman Tray em Ajustes do Sistema → Geral → Itens de Início")
 
 // useAppService reports whether the login item goes through SMAppService (macOS 13+),
 // which lists the app under Login Items in System Settings. It needs an app bundle;

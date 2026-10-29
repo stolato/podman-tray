@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -117,5 +117,5 @@ func (a *App) alert(name, title, msg string) {
 	}
 	a.alertedAt[name] = time.Now()
 	a.alertMu.Unlock()
-	macos.Notify(title, msg)
+	desktop.Notify(title, msg)
 }
