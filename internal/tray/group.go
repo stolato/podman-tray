@@ -39,6 +39,7 @@ func groupContainers(cs []podman.Container) (groups []containerGroup, loose []po
 type groupState struct {
 	running, total int
 	busy           bool
+	unhealthy      bool // some container fails its healthcheck
 	startable      bool // some container isn't running (stopped or paused)
 	stoppable      bool // some container is running or paused
 }
@@ -54,13 +55,17 @@ func (st *groupState) add(c podman.Container, busy bool) {
 		st.stoppable = true
 	}
 	st.busy = st.busy || busy
+	st.unhealthy = st.unhealthy || (c.Running() && c.Health() == "unhealthy")
 }
 
-// icon is 🟢 when everything runs, 🟡 when only part of it does, ⚪️ when nothing does.
+// icon is 🟢 when everything runs, 🟡 when only part of it does, ⚪️ when nothing does,
+// and 🟠 when something fails its healthcheck.
 func (st *groupState) icon() string {
 	switch {
 	case st.busy:
 		return "⏳"
+	case st.unhealthy:
+		return "🟠"
 	case st.running == st.total:
 		return "🟢"
 	case st.running > 0:

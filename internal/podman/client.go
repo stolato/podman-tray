@@ -110,6 +110,64 @@ func (p *Client) RemovePod(name string) error {
 	return err
 }
 
+// State inspects a container, to tell why it exited.
+func (p *Client) State(name string) (ContainerState, error) {
+	out, err := p.run(15*time.Second, "inspect", "--type", "container", "--format", "json", name)
+	if err != nil {
+		return ContainerState{}, err
+	}
+	var cs []struct {
+		State ContainerState `json:"State"`
+	}
+	if err := json.Unmarshal(out, &cs); err != nil {
+		return ContainerState{}, fmt.Errorf("parse inspect: %w", err)
+	}
+	if len(cs) == 0 {
+		return ContainerState{}, fmt.Errorf("podman inspect %s: no result", name)
+	}
+	return cs[0].State, nil
+}
+
+// DiskUsage reports the space used by images, containers and volumes.
+func (p *Client) DiskUsage() ([]DiskUsage, error) {
+	out, err := p.run(30*time.Second, "system", "df", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var du []DiskUsage
+	return du, json.Unmarshal(out, &du)
+}
+
+// EmptyPods lists the pods without containers (besides their infra one), e.g. the ones
+// podman-compose leaves behind.
+func (p *Client) EmptyPods() ([]string, error) {
+	out, err := p.run(15*time.Second, "pod", "ls", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var pods []Pod
+	if err := json.Unmarshal(out, &pods); err != nil {
+		return nil, fmt.Errorf("parse pod ls: %w", err)
+	}
+	var names []string
+	for _, pod := range pods {
+		if pod.Empty() {
+			names = append(names, pod.Name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// PruneImages removes every image no container uses, returning how many were removed.
+func (p *Client) PruneImages() (int, error) {
+	out, err := p.run(5*time.Minute, "image", "prune", "--all", "--force")
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.Fields(string(out))), nil
+}
+
 // Stats returns resource usage of the running containers.
 func (p *Client) Stats() ([]Stats, error) {
 	out, err := p.run(15*time.Second, "stats", "--no-stream", "--format", "json")

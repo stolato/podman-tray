@@ -44,6 +44,15 @@ type App struct {
 	debounceMu sync.Mutex
 	debounce   *time.Timer
 
+	alertMu   sync.Mutex
+	health    map[string]string    // container name -> last health_status seen
+	alertedAt map[string]time.Time // container name -> last crash/unhealthy alert
+
+	settingsPath string
+	quiet        atomic.Bool             // settings.QuietSuccess
+	newRelease   atomic.Pointer[release] // newer release, once found
+	diskStale    atomic.Bool             // refetch disk usage on the next refresh
+
 	// Owned by the refresh loop goroutine.
 	layoutKey  string
 	done       chan struct{}
@@ -55,20 +64,30 @@ type App struct {
 	groups     map[podman.Group]*groupMenu
 	containers map[string]*containerMenu
 	cpuPrev    map[string]cpuSample
+	updateItem *systray.MenuItem
+	cleanup    *cleanupMenu
+	disk       []podman.DiskUsage // last fetched; refreshed every diskInterval while the menu is open
+	emptyPods  []string
+	diskAt     time.Time
 }
 
 func New() *App {
 	pm, err := podman.New()
 	ctx, stop := context.WithCancel(context.Background())
-	return &App{
-		pm:        pm,
-		pmErr:     err,
-		refreshCh: make(chan struct{}, 1),
-		ctx:       ctx,
-		stop:      stop,
-		busy:      map[string]string{},
-		cpuPrev:   map[string]cpuSample{},
+	a := &App{
+		pm:           pm,
+		pmErr:        err,
+		refreshCh:    make(chan struct{}, 1),
+		ctx:          ctx,
+		stop:         stop,
+		busy:         map[string]string{},
+		health:       map[string]string{},
+		alertedAt:    map[string]time.Time{},
+		cpuPrev:      map[string]cpuSample{},
+		settingsPath: settingsPath(),
 	}
+	a.quiet.Store(loadSettings(a.settingsPath).QuietSuccess)
+	return a
 }
 
 func (a *App) OnReady() {
@@ -80,6 +99,7 @@ func (a *App) OnReady() {
 	}
 	go a.loop()
 	go a.watchMenuOpen()
+	go a.watchUpdates()
 	if a.pm != nil {
 		a.eventsDone = make(chan struct{})
 		go a.watchEvents()
@@ -159,6 +179,9 @@ type snapshot struct {
 	statsAt        time.Time
 }
 
+// diskInterval is how often `system df` (slow on big stores) runs while the menu is open.
+const diskInterval = time.Minute
+
 func (a *App) fetch() snapshot {
 	if a.pmErr != nil {
 		return snapshot{err: a.pmErr}
@@ -170,7 +193,16 @@ func (a *App) fetch() snapshot {
 		s.machineStopped = s.machine != nil && s.machine.Stopped()
 		return s
 	}
-	// Stats are only shown in the menu, so skip them while nobody is looking.
+	// Disk usage and stats are only shown in the menu, so skip them while nobody is looking.
+	if a.menuRecentlyOpened() && (a.diskStale.Swap(false) || time.Since(a.diskAt) > diskInterval) {
+		a.diskAt = time.Now()
+		if du, err := a.pm.DiskUsage(); err == nil {
+			a.disk = du
+		}
+		if pods, err := a.pm.EmptyPods(); err == nil {
+			a.emptyPods = pods
+		}
+	}
 	if a.menuRecentlyOpened() && anyRunning(cs) {
 		if ss, err := a.pm.Stats(); err == nil {
 			s.statsAt = time.Now()

@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -151,5 +152,75 @@ func TestProjectPods(t *testing.T) {
 	}
 	if got, want := projectPods(cs, web), []string{"pod_web"}; !slices.Equal(got, want) {
 		t.Errorf("projectPods() = %v, want %v", got, want)
+	}
+}
+
+func TestNewerVersion(t *testing.T) {
+	tests := []struct {
+		latest, current string
+		want            bool
+	}{
+		{"1.3.0", "1.2.0", true},
+		{"1.10.0", "1.9.2", true},
+		{"1.2.0", "1.2.0", false},
+		{"1.2", "1.2.0", false},
+		{"1.2.1", "1.2", true},
+		{"1.1.9", "1.2.0", false},
+		{"2.0.0-beta", "1.2.0", false}, // unparsable: never offered
+		{"1.3.0", "dev", false},
+	}
+	for _, tt := range tests {
+		if got := newerVersion(tt.latest, tt.current); got != tt.want {
+			t.Errorf("newerVersion(%q, %q) = %t, want %t", tt.latest, tt.current, got, tt.want)
+		}
+	}
+}
+
+func TestSettingsRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "settings.json")
+	if s := loadSettings(path); s.QuietSuccess {
+		t.Error("default QuietSuccess = true, want false")
+	}
+	if err := saveSettings(path, settings{QuietSuccess: true}); err != nil {
+		t.Fatal(err)
+	}
+	if s := loadSettings(path); !s.QuietSuccess {
+		t.Error("QuietSuccess not persisted")
+	}
+}
+
+func TestHealthChanged(t *testing.T) {
+	a := &App{health: map[string]string{}}
+	steps := []struct {
+		health string
+		want   bool
+	}{
+		{"healthy", true},
+		{"healthy", false},
+		{"unhealthy", true},
+		{"unhealthy", false},
+		{"", true}, // removed: forget it
+		{"unhealthy", true},
+	}
+	for i, s := range steps {
+		if got := a.healthChanged("web", s.health); got != s.want {
+			t.Errorf("step %d: healthChanged(%q) = %t, want %t", i, s.health, got, s.want)
+		}
+	}
+}
+
+func TestContainerIcon(t *testing.T) {
+	tests := []struct {
+		c    podman.Container
+		want string
+	}{
+		{podman.Container{State: "running", Status: "Up 1 minute (unhealthy)"}, "🟠"},
+		{podman.Container{State: "running", Status: "Up 1 minute (healthy)"}, "🟢"},
+		{podman.Container{State: "exited", Status: "Exited (1) 1 minute ago"}, "⚪️"},
+	}
+	for _, tt := range tests {
+		if got := containerIcon(tt.c); got != tt.want {
+			t.Errorf("containerIcon(%q) = %s, want %s", tt.c.Status, got, tt.want)
+		}
 	}
 }

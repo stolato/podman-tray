@@ -105,3 +105,38 @@ func TestContainerGroup(t *testing.T) {
 		}
 	}
 }
+
+func TestContainerHealth(t *testing.T) {
+	tests := map[string]string{
+		"Up 5 minutes (unhealthy)": "unhealthy",
+		"Up 5 minutes (healthy)":   "healthy",
+		"Up 2 seconds (starting)":  "starting",
+		"Up 5 minutes":             "",
+		"Exited (0) 2 hours ago":   "",
+	}
+	for status, want := range tests {
+		if got := (Container{Status: status}).Health(); got != want {
+			t.Errorf("Health(%q) = %q, want %q", status, got, want)
+		}
+	}
+}
+
+func TestPodEmpty(t *testing.T) {
+	type ids = []struct {
+		ID string `json:"Id"`
+	}
+	tests := []struct {
+		pod  Pod
+		want bool
+	}{
+		{Pod{}, true},
+		{Pod{InfraID: "i", Containers: ids{{"i"}}}, true},
+		{Pod{InfraID: "i", Containers: ids{{"i"}, {"c"}}}, false},
+		{Pod{Containers: ids{{"c"}}}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.pod.Empty(); got != tt.want {
+			t.Errorf("%+v.Empty() = %t, want %t", tt.pod, got, tt.want)
+		}
+	}
+}

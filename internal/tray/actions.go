@@ -54,7 +54,7 @@ func (a *App) containerAction(action, name string) {
 		case err != nil:
 			macos.Notify("Erro: "+action+" "+name, err.Error())
 		default:
-			macos.Notify("Podman Tray", fmt.Sprintf("%s: %s ok", name, action))
+			a.notifyDone("Podman Tray", fmt.Sprintf("%s: %s ok", name, action))
 		}
 	}()
 }
@@ -116,7 +116,7 @@ func (a *App) runBulk(title string, targets []bulkTarget, done, failVerb string)
 	wg.Wait()
 
 	if len(failed) == 0 {
-		macos.Notify(title, fmt.Sprintf("%d containers %s", ok, done))
+		a.notifyDone(title, fmt.Sprintf("%d containers %s", ok, done))
 		return true
 	}
 	macos.Notify(
@@ -160,7 +160,7 @@ func (a *App) podAction(action string, g podman.Group, fn func() error) {
 			macos.Notify("Erro: pod "+action+" "+g.Name, err.Error())
 			return
 		}
-		macos.Notify("Podman Tray", fmt.Sprintf("pod %s: %s ok", g.Name, action))
+		a.notifyDone("Podman Tray", fmt.Sprintf("pod %s: %s ok", g.Name, action))
 	}()
 }
 
@@ -305,7 +305,7 @@ func (a *App) startMachine() {
 		case err != nil:
 			macos.Notify("Erro ao iniciar machine", err.Error())
 		default:
-			macos.Notify("Podman Tray", "Podman machine iniciada")
+			a.notifyDone("Podman Tray", "Podman machine iniciada")
 		}
 	}()
 }
@@ -325,7 +325,7 @@ func (a *App) stopMachine() {
 		case err != nil:
 			macos.Notify("Erro ao parar machine", err.Error())
 		default:
-			macos.Notify("Podman Tray", "Podman machine parada")
+			a.notifyDone("Podman Tray", "Podman machine parada")
 		}
 	}()
 }
@@ -361,4 +361,82 @@ func (a *App) toggleLogin(item *systray.MenuItem) {
 	} else {
 		item.Uncheck()
 	}
+}
+
+// notifyDone reports an action that worked, unless the user turned those off.
+func (a *App) notifyDone(title, msg string) {
+	if !a.quiet.Load() {
+		macos.Notify(title, msg)
+	}
+}
+
+func (a *App) toggleNotifyDone(item *systray.MenuItem) {
+	quiet := item.Checked() // checked = notify; clicking flips it
+	if err := saveSettings(a.settingsPath, settings{QuietSuccess: quiet}); err != nil {
+		macos.Notify("Erro ao salvar preferência", err.Error())
+		return
+	}
+	a.quiet.Store(quiet)
+	if quiet {
+		item.Uncheck()
+	} else {
+		item.Check()
+	}
+}
+
+func (a *App) copy(text string) {
+	if err := macos.CopyToClipboard(text); err != nil {
+		macos.Notify("Erro ao copiar", err.Error())
+	}
+}
+
+// pruneImages removes every image no container uses, after confirmation.
+func (a *App) pruneImages() {
+	if !macos.Confirm("Remover imagens sem uso?",
+		"Todas as imagens que nenhum container usa serão apagadas. Elas são baixadas de novo quando precisar.",
+		"Remover") {
+		return
+	}
+	go func() {
+		n, err := a.pm.PruneImages()
+		a.diskStale.Store(true)
+		a.triggerRefresh()
+		if err != nil {
+			macos.Notify("Erro ao remover imagens", err.Error())
+			return
+		}
+		a.notifyDone("Podman Tray", fmt.Sprintf("%d imagens removidas", n))
+	}()
+}
+
+// removeEmptyPods removes the pods with no containers, after confirmation. It lists
+// them at click time, since the menu may be up to diskInterval old.
+func (a *App) removeEmptyPods() {
+	pods, err := a.pm.EmptyPods()
+	switch {
+	case err != nil:
+		macos.Notify("Erro ao listar pods", err.Error())
+		return
+	case len(pods) == 0:
+		macos.Notify("Podman Tray", "Nenhum pod vazio")
+		return
+	}
+	if !macos.Confirm("Remover pods vazios?", truncate(strings.Join(pods, ", "), 300), "Remover") {
+		return
+	}
+	go func() {
+		var failed []string
+		for _, pod := range pods {
+			if err := a.pm.RemovePod(pod); err != nil {
+				failed = append(failed, pod+": "+err.Error())
+			}
+		}
+		a.diskStale.Store(true)
+		a.triggerRefresh()
+		if len(failed) > 0 {
+			macos.Notify(fmt.Sprintf("Erro ao remover %d de %d pods", len(failed), len(pods)), truncate(failed[0], 200))
+			return
+		}
+		a.notifyDone("Podman Tray", fmt.Sprintf("%d pods vazios removidos", len(pods)))
+	}()
 }

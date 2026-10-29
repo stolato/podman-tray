@@ -101,6 +101,17 @@ func (c Container) Running() bool {
 	return c.State == "running"
 }
 
+// Health is the healthcheck result shown in the status ("Up 5 minutes (unhealthy)"):
+// healthy, unhealthy, starting, or "" without a healthcheck.
+func (c Container) Health() string {
+	for _, h := range []string{"unhealthy", "healthy", "starting"} {
+		if strings.HasSuffix(c.Status, "("+h+")") {
+			return h
+		}
+	}
+	return ""
+}
+
 // Paused containers can't be started, only unpaused (or stopped).
 func (c Container) Paused() bool {
 	return c.State == "paused"
@@ -154,8 +165,43 @@ func (s Stats) CPUDuration() (time.Duration, error) {
 
 // Event is one line of `podman events --format json`.
 type Event struct {
-	ID     string `json:"ID"`
-	Name   string `json:"Name"`
-	Status string `json:"Status"` // start, died, create, remove, sync...
-	Type   string `json:"Type"`
+	ID       string `json:"ID"`
+	Name     string `json:"Name"`
+	Status   string `json:"Status"` // start, died, create, remove, health_status, sync...
+	Type     string `json:"Type"`
+	ExitCode int    `json:"ContainerExitCode"` // set on died
+	Health   string `json:"health_status"`     // set on health_status: healthy, unhealthy, starting
+}
+
+// ContainerState is the part of `podman inspect` that explains why a container exited.
+type ContainerState struct {
+	ExitCode      int  `json:"ExitCode"`
+	OOMKilled     bool `json:"OOMKilled"`
+	StoppedByUser bool `json:"StoppedByUser"` // podman stop/restart/pod stop, from anywhere
+}
+
+// DiskUsage is one entry of `podman system df --format json`.
+type DiskUsage struct {
+	Type        string `json:"Type"`        // Images, Containers, Local Volumes
+	Size        string `json:"Size"`        // e.g. "12.43GB"
+	Reclaimable string `json:"Reclaimable"` // e.g. "10.42GB (84%)"
+}
+
+// Pod is one entry of `podman pod ls --format json`.
+type Pod struct {
+	Name       string `json:"Name"`
+	InfraID    string `json:"InfraId"`
+	Containers []struct {
+		ID string `json:"Id"`
+	} `json:"Containers"`
+}
+
+// Empty reports whether the pod has no containers besides its infra one.
+func (p Pod) Empty() bool {
+	for _, c := range p.Containers {
+		if c.ID != p.InfraID {
+			return false
+		}
+	}
+	return true
 }

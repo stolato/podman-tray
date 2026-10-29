@@ -1,13 +1,10 @@
 package tray
 
-// Set at build time by the Makefile (-X); plain `go build` leaves the defaults.
-var (
-	version = "dev"
-	build   = "" // build timestamp, yyyymmddHHMM
-)
+// Set at build time by the Makefile (-X) from Info.plist; plain `go build` leaves "dev".
+// The build timestamp only goes into the bundle (CFBundleVersion, shown in Finder's Get Info).
+var version = "dev"
 
-// VersionString is shown in the menu, e.g. "Podman Tray 1.0.0 · build 15/10/2026 20:41".
+// VersionString is shown in the menu and the tooltip, e.g. "Podman Tray 1.2.0".
 func VersionString() string {
-	s := "Podman Tray " + version
-	return s
+	return "Podman Tray " + version
 }

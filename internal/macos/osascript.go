@@ -30,3 +30,9 @@ func OpenInTerminal(command string) error {
 		"-e", fmt.Sprintf(`tell application "Terminal" to do script %s`, appleScriptString(command)),
 	).Run()
 }
+
+func CopyToClipboard(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}

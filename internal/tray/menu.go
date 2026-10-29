@@ -14,6 +14,10 @@ type machineMenu struct {
 	root, info, start, stop *systray.MenuItem
 }
 
+type cleanupMenu struct {
+	root, images, volumes, pruneImages, emptyPods *systray.MenuItem
+}
+
 type groupMenu struct {
 	root, start, stop, remove *systray.MenuItem
 }
@@ -71,6 +75,14 @@ func (a *App) build(s snapshot) {
 		a.on(systray.AddMenuItem("■ Parar todos", ""), done, func() { a.bulk("stop", nil) })
 
 		systray.AddSeparator()
+
+		if s.err == nil {
+			a.cleanup = a.buildCleanup(done)
+		} else {
+			a.cleanup = nil
+		}
+
+		systray.AddSeparator()
 		a.machine = &machineMenu{root: systray.AddMenuItem("Podman machine", "")}
 		a.machine.info = a.machine.root.AddSubMenuItem("", "")
 		a.machine.info.Disable()
@@ -79,21 +91,36 @@ func (a *App) build(s snapshot) {
 		a.machine.stop = a.machine.root.AddSubMenuItem("■ Parar", "")
 		a.on(a.machine.start, done, a.startMachine)
 		a.on(a.machine.stop, done, a.stopMachine)
-		a.on(systray.AddMenuItem("↻ Atualizar", ""), done, a.triggerRefresh)
 	}
 
-	login := systray.AddMenuItemCheckbox("Abrir ao iniciar sessão", "", macos.LoginItemEnabled())
+	systray.AddSeparator()
+
+	// Set-and-forget preferences live in a submenu, to keep the top level short.
+	options := systray.AddMenuItem("⚙️ Opções", "")
+	login := options.AddSubMenuItemCheckbox("Abrir ao iniciar sessão", "", macos.LoginItemEnabled())
 	if !macos.CanRunAtLogin() {
 		login.SetTooltip("Disponível apenas no binário compilado (make app)")
 		login.Disable()
 	}
 	a.on(login, done, func() { a.toggleLogin(login) })
 
+	notifyDone := options.AddSubMenuItemCheckbox("Notificar ações concluídas", "Erros e alertas sempre são notificados", !a.quiet.Load())
+	a.on(notifyDone, done, func() { a.toggleNotifyDone(notifyDone) })
+
+	// Not under Opções: it's a warning, only shown while notifications are off.
+
 	a.notifyOff = systray.AddMenuItem("🔕 Notificações desativadas, abrir Ajustes", "")
 	a.on(a.notifyOff, done, a.openNotificationSettings)
 
 	systray.AddSeparator()
 	systray.AddMenuItem(VersionString(), "").Disable()
+	a.updateItem = systray.AddMenuItem("", "Abrir a página do release no GitHub")
+	a.updateItem.Hide()
+	a.on(a.updateItem, done, func() {
+		if r := a.newRelease.Load(); r != nil {
+			a.openURL(r.URL)
+		}
+	})
 	systray.AddSeparator()
 	a.on(systray.AddMenuItem("Sair", ""), done, systray.Quit)
 }
@@ -160,6 +187,7 @@ func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done 
 	m.logs = m.root.AddSubMenuItem("Logs…", "podman logs -f no Terminal")
 	m.shell = m.root.AddSubMenuItem("Shell…", "podman exec -it no Terminal")
 	m.inspect = m.root.AddSubMenuItem("Inspect…", "podman inspect no Terminal")
+	a.buildCopy(c, m.root, done)
 	m.root.AddSeparator()
 	m.remove = m.root.AddSubMenuItem("🗑 Remover…", "podman rm -f")
 
@@ -186,6 +214,12 @@ func (a *App) update(s snapshot) {
 	if s.stats != nil {
 		cpuNext = map[string]cpuSample{}
 		defer func() { a.cpuPrev = cpuNext }()
+	}
+
+	a.updateCleanup()
+	if r := a.newRelease.Load(); r != nil {
+		a.updateItem.SetTitle("⬆️ Nova versão " + r.Version + " disponível")
+		a.updateItem.Show()
 	}
 
 	a.mu.Lock()
@@ -222,7 +256,7 @@ func (a *App) update(s snapshot) {
 			continue
 		}
 
-		icon := stateIcon(c.State)
+		icon := containerIcon(c)
 		status := c.Status
 		if isBusy {
 			icon = "⏳"
@@ -334,6 +368,14 @@ func (a *App) on(item *systray.MenuItem, done <-chan struct{}, fn func()) {
 	}()
 }
 
+// containerIcon is stateIcon, except that a running container failing its healthcheck is 🟠.
+func containerIcon(c podman.Container) string {
+	if c.Running() && c.Health() == "unhealthy" {
+		return "🟠"
+	}
+	return stateIcon(c.State)
+}
+
 func stateIcon(state string) string {
 	switch state {
 	case "running":
@@ -361,4 +403,57 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n-1]) + "…"
+}
+
+// buildCopy adds a "Copiar" submenu with the container's ID, name and URLs.
+func (a *App) buildCopy(c podman.Container, parent *systray.MenuItem, done <-chan struct{}) {
+	m := parent.AddSubMenuItem("📋 Copiar", "")
+	add := func(label, text string) {
+		a.on(m.AddSubMenuItem(label, text), done, func() { a.copy(text) })
+	}
+	add("ID ("+truncate(c.ID, 13)+")", c.ID)
+	add("Nome", c.Name())
+	for _, p := range c.Ports {
+		if url := p.URL(); url != "" {
+			add(url, url)
+		}
+	}
+}
+
+// buildCleanup adds the "Limpeza" submenu: disk usage and ways to reclaim it. Volumes
+// hold data, so there's no prune for them here.
+func (a *App) buildCleanup(done <-chan struct{}) *cleanupMenu {
+	m := &cleanupMenu{root: systray.AddMenuItem("🧹 Limpeza", "")}
+	m.images = m.root.AddSubMenuItem("Imagens: …", "")
+	m.images.Disable()
+	m.volumes = m.root.AddSubMenuItem("Volumes: …", "Volumes guardam dados: remova pelo terminal")
+	m.volumes.Disable()
+	m.root.AddSeparator()
+	m.pruneImages = m.root.AddSubMenuItem("Remover imagens sem uso…", "podman image prune --all")
+	m.emptyPods = m.root.AddSubMenuItem("Remover pods vazios…", "podman pod rm")
+	a.on(m.pruneImages, done, a.pruneImages)
+	a.on(m.emptyPods, done, a.removeEmptyPods)
+	return m
+}
+
+func (a *App) updateCleanup() {
+	if a.cleanup == nil {
+		return
+	}
+	for _, du := range a.disk {
+		label := du.Size + " · " + du.Reclaimable + " liberáveis"
+		switch du.Type {
+		case "Images":
+			a.cleanup.images.SetTitle("Imagens: " + label)
+		case "Local Volumes":
+			a.cleanup.volumes.SetTitle("Volumes: " + label)
+		}
+	}
+	if n := len(a.emptyPods); n > 0 {
+		a.cleanup.emptyPods.SetTitle(fmt.Sprintf("Remover pods vazios (%d)…", n))
+		a.cleanup.emptyPods.Enable()
+	} else {
+		a.cleanup.emptyPods.SetTitle("Remover pods vazios…")
+		a.cleanup.emptyPods.Disable()
+	}
 }
