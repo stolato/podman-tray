@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	"podman-tray/internal/i18n"
+
 	"github.com/godbus/dbus/v5"
 )
 
@@ -31,5 +33,5 @@ func Notify(title, msg string) {
 func NotificationsDenied() bool { return false }
 
 func OpenNotificationSettings() error {
-	return errors.New("abra as configurações de notificação do seu ambiente gráfico")
+	return errors.New(i18n.T("open the notification settings of your desktop environment"))
 }

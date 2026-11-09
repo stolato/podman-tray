@@ -17,12 +17,14 @@ import (
 	"errors"
 	"os"
 	"strings"
+
+	"podman-tray/internal/i18n"
 )
 
 // ErrLoginItemNeedsApproval means the login item is registered but turned off in the
 // OS settings (System Settings > General > Login Items on macOS), which SetLoginItem has
 // opened.
-var ErrLoginItemNeedsApproval = errors.New("ative o Podman Tray em Ajustes do Sistema → Geral → Itens de Início")
+var ErrLoginItemNeedsApproval = errors.New(i18n.T("turn on Podman Tray in System Settings → General → Login Items"))
 
 // CanRunAtLogin is false for `go run` binaries, which live in a temp dir that disappears.
 func CanRunAtLogin() bool {

@@ -16,6 +16,8 @@ import "C"
 import (
 	"errors"
 	"unsafe"
+
+	"podman-tray/internal/i18n"
 )
 
 // SMAppServiceStatus values.
@@ -38,7 +40,7 @@ func appServiceOn() bool {
 func setAppService(enabled bool) error {
 	if msg := C.pt_login_set(C.bool(enabled)); msg != nil {
 		defer C.free(unsafe.Pointer(msg))
-		return errors.New(C.GoString(msg))
+		return errors.New(i18n.T(C.GoString(msg)))
 	}
 	if enabled && C.pt_login_status() == statusRequiresApproval {
 		C.pt_open_login_items_settings()
