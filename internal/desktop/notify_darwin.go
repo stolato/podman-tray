@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
@@ -10,11 +10,15 @@ bool pt_in_bundle(void);
 void pt_notifications_setup(void);
 void pt_notify(const char *title, const char *body);
 bool pt_notifications_denied(void);
-bool pt_confirm(const char *title, const char *msg, const char *button);
+bool pt_confirm(const char *title, const char *msg, const char *button, const char *cancel);
 */
 import "C"
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"podman-tray/internal/i18n"
+)
 
 // inBundle is false for `go run` binaries, which can't use UNUserNotificationCenter.
 var inBundle = bool(C.pt_in_bundle())
@@ -56,11 +60,12 @@ func ptNotifyFallback(title, msg *C.char) {
 }
 
 // Confirm shows a native warning alert and reports whether the user clicked button.
-// Cancelar is the default, so Enter doesn't trigger the action by accident.
+// Cancel is the default, so Enter doesn't trigger the action by accident.
 func Confirm(title, msg, button string) bool {
-	ct, cm, cb := C.CString(title), C.CString(msg), C.CString(button)
+	ct, cm, cb, cc := C.CString(title), C.CString(msg), C.CString(button), C.CString(i18n.T("Cancel"))
 	defer C.free(unsafe.Pointer(ct))
 	defer C.free(unsafe.Pointer(cm))
 	defer C.free(unsafe.Pointer(cb))
-	return bool(C.pt_confirm(ct, cm, cb))
+	defer C.free(unsafe.Pointer(cc))
+	return bool(C.pt_confirm(ct, cm, cb, cc))
 }

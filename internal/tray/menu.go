@@ -1,12 +1,14 @@
 package tray
 
 import (
-	"fmt"
+	"runtime"
 	"strings"
+
+	"podman-tray/internal/i18n"
 
 	"fyne.io/systray"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -52,14 +54,14 @@ func (a *App) build(s snapshot) {
 		errItem := systray.AddMenuItem(truncate(s.err.Error(), 70), s.err.Error())
 		errItem.Disable()
 		if s.machineStopped {
-			a.on(systray.AddMenuItem("▶ Iniciar Podman machine", ""), done, a.startMachine)
+			a.on(systray.AddMenuItem(i18n.T("▶ Start Podman machine"), ""), done, a.startMachine)
 		}
 	}
 
 	systray.AddSeparator()
 
 	if s.err == nil && len(s.containers) == 0 {
-		systray.AddMenuItem("Nenhum container encontrado", "").Disable()
+		systray.AddMenuItem(i18n.T("No containers found"), "").Disable()
 	}
 	groups, loose := groupContainers(s.containers)
 	for _, g := range groups {
@@ -71,8 +73,8 @@ func (a *App) build(s snapshot) {
 
 	if a.pm != nil {
 		systray.AddSeparator()
-		a.on(systray.AddMenuItem("▶ Iniciar todos", ""), done, func() { a.bulk("start", nil) })
-		a.on(systray.AddMenuItem("■ Parar todos", ""), done, func() { a.bulk("stop", nil) })
+		a.on(systray.AddMenuItem(i18n.T("▶ Start all"), ""), done, func() { a.bulk("start", nil) })
+		a.on(systray.AddMenuItem(i18n.T("■ Stop all"), ""), done, func() { a.bulk("stop", nil) })
 
 		systray.AddSeparator()
 
@@ -87,8 +89,8 @@ func (a *App) build(s snapshot) {
 		a.machine.info = a.machine.root.AddSubMenuItem("", "")
 		a.machine.info.Disable()
 		a.machine.root.AddSeparator()
-		a.machine.start = a.machine.root.AddSubMenuItem("▶ Iniciar", "")
-		a.machine.stop = a.machine.root.AddSubMenuItem("■ Parar", "")
+		a.machine.start = a.machine.root.AddSubMenuItem(i18n.T("▶ Start"), "")
+		a.machine.stop = a.machine.root.AddSubMenuItem(i18n.T("■ Stop"), "")
 		a.on(a.machine.start, done, a.startMachine)
 		a.on(a.machine.stop, done, a.stopMachine)
 	}
@@ -96,25 +98,25 @@ func (a *App) build(s snapshot) {
 	systray.AddSeparator()
 
 	// Set-and-forget preferences live in a submenu, to keep the top level short.
-	options := systray.AddMenuItem("⚙️ Opções", "")
-	login := options.AddSubMenuItemCheckbox("Abrir ao iniciar sessão", "", macos.LoginItemEnabled())
-	if !macos.CanRunAtLogin() {
-		login.SetTooltip("Disponível apenas no binário compilado (make app)")
+	options := systray.AddMenuItem(i18n.T("⚙️ Options"), "")
+	login := options.AddSubMenuItemCheckbox(i18n.T("Open at login"), "", desktop.LoginItemEnabled())
+	if !desktop.CanRunAtLogin() {
+		login.SetTooltip(i18n.T("Only available in the built app (make app)"))
 		login.Disable()
 	}
 	a.on(login, done, func() { a.toggleLogin(login) })
 
-	notifyDone := options.AddSubMenuItemCheckbox("Notificar ações concluídas", "Erros e alertas sempre são notificados", !a.quiet.Load())
+	notifyDone := options.AddSubMenuItemCheckbox(i18n.T("Notify finished actions"), i18n.T("Errors and alerts are always notified"), !a.quiet.Load())
 	a.on(notifyDone, done, func() { a.toggleNotifyDone(notifyDone) })
 
-	// Not under Opções: it's a warning, only shown while notifications are off.
+	// Not under Options: it's a warning, only shown while notifications are off.
 
-	a.notifyOff = systray.AddMenuItem("🔕 Notificações desativadas, abrir Ajustes", "")
+	a.notifyOff = systray.AddMenuItem(i18n.T("🔕 Notifications are off, open settings"), "")
 	a.on(a.notifyOff, done, a.openNotificationSettings)
 
 	systray.AddSeparator()
 	systray.AddMenuItem(VersionString(), "").Disable()
-	a.updateItem = systray.AddMenuItem("", "Abrir a página do release no GitHub")
+	a.updateItem = systray.AddMenuItem("", i18n.T("Open the release page on GitHub"))
 	a.updateItem.Hide()
 	a.on(a.updateItem, done, func() {
 		if r := a.newRelease.Load(); r != nil {
@@ -122,27 +124,27 @@ func (a *App) build(s snapshot) {
 		}
 	})
 	systray.AddSeparator()
-	a.on(systray.AddMenuItem("Sair", ""), done, systray.Quit)
+	a.on(systray.AddMenuItem(i18n.T("Quit"), ""), done, systray.Quit)
 }
 
 // buildGroup adds a compose project or pod, with its containers in the submenu.
 func (a *App) buildGroup(g containerGroup, done <-chan struct{}) *groupMenu {
-	kind := "Projeto compose"
+	kind := i18n.T("Compose project")
 	if g.Kind == podman.GroupPod {
 		kind = "Pod"
 	}
 	m := &groupMenu{root: systray.AddMenuItem(g.Name, "")}
 	m.root.AddSubMenuItem(kind+": "+g.Name, "").Disable()
-	m.start = m.root.AddSubMenuItem("▶ Iniciar grupo", "")
-	m.stop = m.root.AddSubMenuItem("■ Parar grupo", "")
+	m.start = m.root.AddSubMenuItem(i18n.T("▶ Start group"), "")
+	m.stop = m.root.AddSubMenuItem(i18n.T("■ Stop group"), "")
 	m.root.AddSeparator()
 	for _, c := range g.containers {
 		a.containers[c.Name()] = a.buildContainer(c, m.root, done)
 	}
 	m.root.AddSeparator()
-	remove := "🗑 Remover containers…"
+	remove := i18n.T("🗑 Remove containers…")
 	if g.Kind == podman.GroupPod {
-		remove = "🗑 Remover pod…"
+		remove = i18n.T("🗑 Remove pod…")
 	}
 	m.remove = m.root.AddSubMenuItem(remove, "")
 	a.on(m.start, done, func() { a.groupAction("start", g.Group) })
@@ -165,7 +167,7 @@ func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done 
 	m.stats = m.root.AddSubMenuItem("", "")
 	m.stats.Disable()
 	m.stats.Hide()
-	m.image = m.root.AddSubMenuItem("Imagem: "+c.Image, "")
+	m.image = m.root.AddSubMenuItem(i18n.F("Image: %s", c.Image), "")
 	m.image.Disable()
 	for _, p := range c.Ports {
 		item := m.root.AddSubMenuItem("🌐 "+p.Label(), p.URL())
@@ -184,12 +186,12 @@ func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done 
 	m.unpause = m.root.AddSubMenuItem("⏯ Unpause", "podman unpause")
 	m.unpause.Hide()
 	m.root.AddSeparator()
-	m.logs = m.root.AddSubMenuItem("Logs…", "podman logs -f no Terminal")
-	m.shell = m.root.AddSubMenuItem("Shell…", "podman exec -it no Terminal")
-	m.inspect = m.root.AddSubMenuItem("Inspect…", "podman inspect no Terminal")
+	m.logs = m.root.AddSubMenuItem("Logs…", i18n.T("podman logs -f in a terminal"))
+	m.shell = m.root.AddSubMenuItem("Shell…", i18n.T("podman exec -it in a terminal"))
+	m.inspect = m.root.AddSubMenuItem("Inspect…", i18n.T("podman inspect in a terminal"))
 	a.buildCopy(c, m.root, done)
 	m.root.AddSeparator()
-	m.remove = m.root.AddSubMenuItem("🗑 Remover…", "podman rm -f")
+	m.remove = m.root.AddSubMenuItem(i18n.T("🗑 Remove…"), "podman rm -f")
 
 	a.on(m.start, done, func() { a.containerAction("start", name) })
 	a.on(m.stop, done, func() { a.containerAction("stop", name) })
@@ -197,13 +199,13 @@ func (a *App) buildContainer(c podman.Container, parent *systray.MenuItem, done 
 	a.on(m.pause, done, func() { a.containerAction("pause", name) })
 	a.on(m.unpause, done, func() { a.containerAction("unpause", name) })
 	a.on(m.logs, done, func() {
-		a.terminal(a.pm.Command("logs", "-f", "--tail", "200", name))
+		a.terminal(false, "logs", "-f", "--tail", "200", name)
 	})
 	a.on(m.shell, done, func() {
-		a.terminal(a.pm.Command("exec", "-it", name, "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"))
+		a.terminal(false, "exec", "-it", name, "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh")
 	})
 	a.on(m.inspect, done, func() {
-		a.terminal(a.pm.Command("inspect", name) + " | less")
+		a.terminal(true, "inspect", name)
 	})
 	a.on(m.remove, done, func() { a.removeContainer(name) })
 	return m
@@ -218,7 +220,7 @@ func (a *App) update(s snapshot) {
 
 	a.updateCleanup()
 	if r := a.newRelease.Load(); r != nil {
-		a.updateItem.SetTitle("⬆️ Nova versão " + r.Version + " disponível")
+		a.updateItem.SetTitle(i18n.F("⬆️ New version %s available", r.Version))
 		a.updateItem.Show()
 	}
 
@@ -231,7 +233,7 @@ func (a *App) update(s snapshot) {
 	a.mu.Unlock()
 
 	a.updateMachine(s.machine, machineAction)
-	if macos.NotificationsDenied() {
+	if desktop.NotificationsDenied() {
 		a.notifyOff.Show()
 	} else {
 		a.notifyOff.Hide()
@@ -297,49 +299,48 @@ func (a *App) update(s snapshot) {
 	}
 
 	if s.err != nil {
-		a.header.SetTitle("⚠️ Podman indisponível")
+		a.header.SetTitle(i18n.T("⚠️ Podman unavailable"))
 		systray.SetTitle("!")
 		a.setActiveIcon(false)
 		return
 	}
-	a.header.SetTitle(fmt.Sprintf("%d/%d containers rodando", running, len(s.containers)))
+	a.header.SetTitle(i18n.F("%d/%d containers running", running, len(s.containers)))
 	systray.SetTitle("")
 	a.setActiveIcon(running > 0)
 }
 
-// setActiveIcon adds a green dot to the pod while any container runs. Both
-// variants follow the menu bar's light/dark appearance.
+// setActiveIcon adds a green dot to the pod while any container runs.
 func (a *App) setActiveIcon(active bool) {
 	if a.iconSet && a.iconActive == active {
 		return
 	}
 	a.iconSet, a.iconActive = true, active
-	if active {
-		const pt = 16.0 / iconSize // systray shows the icon at 16pt
-		macos.SetBadgedIcon(trayIcon(true), dotX*pt, (iconSize-dotY)*pt, dotR*pt)
-	} else {
-		icon := trayIcon(false)
-		systray.SetTemplateIcon(icon, icon)
-	}
+	applyTrayIcon(active) // per OS, in trayicon_*.go
 }
 
 func (a *App) updateMachine(m *podman.Machine, action string) {
 	if a.machine == nil {
 		return
 	}
-	state := "não encontrada"
+	// On Linux podman runs natively; a machine is the exception, so don't advertise one.
+	if m == nil && action == "" && runtime.GOOS == "linux" {
+		a.machine.root.Hide()
+		return
+	}
+	a.machine.root.Show()
+	state := i18n.T("not found")
 	switch {
 	case action == "start":
-		state = "⏳ iniciando…"
+		state = i18n.T("⏳ starting…")
 	case action == "stop":
-		state = "⏳ parando…"
+		state = i18n.T("⏳ stopping…")
 	case m == nil:
 	case m.Running:
-		state = "🟢 rodando"
+		state = i18n.T("🟢 running")
 	case m.Starting:
-		state = "🟡 iniciando"
+		state = i18n.T("🟡 starting")
 	default:
-		state = "⚪️ parada"
+		state = i18n.T("⚪️ stopped")
 	}
 	a.machine.root.SetTitle("Podman machine: " + state)
 
@@ -405,14 +406,14 @@ func truncate(s string, n int) string {
 	return string([]rune(s)[:n-1]) + "…"
 }
 
-// buildCopy adds a "Copiar" submenu with the container's ID, name and URLs.
+// buildCopy adds a "Copy" submenu with the container's ID, name and URLs.
 func (a *App) buildCopy(c podman.Container, parent *systray.MenuItem, done <-chan struct{}) {
-	m := parent.AddSubMenuItem("📋 Copiar", "")
+	m := parent.AddSubMenuItem(i18n.T("📋 Copy"), "")
 	add := func(label, text string) {
 		a.on(m.AddSubMenuItem(label, text), done, func() { a.copy(text) })
 	}
 	add("ID ("+truncate(c.ID, 13)+")", c.ID)
-	add("Nome", c.Name())
+	add(i18n.T("Name"), c.Name())
 	for _, p := range c.Ports {
 		if url := p.URL(); url != "" {
 			add(url, url)
@@ -420,17 +421,17 @@ func (a *App) buildCopy(c podman.Container, parent *systray.MenuItem, done <-cha
 	}
 }
 
-// buildCleanup adds the "Limpeza" submenu: disk usage and ways to reclaim it. Volumes
+// buildCleanup adds the "Cleanup" submenu: disk usage and ways to reclaim it. Volumes
 // hold data, so there's no prune for them here.
 func (a *App) buildCleanup(done <-chan struct{}) *cleanupMenu {
-	m := &cleanupMenu{root: systray.AddMenuItem("🧹 Limpeza", "")}
-	m.images = m.root.AddSubMenuItem("Imagens: …", "")
+	m := &cleanupMenu{root: systray.AddMenuItem(i18n.T("🧹 Cleanup"), "")}
+	m.images = m.root.AddSubMenuItem(i18n.F("Images: %s", "…"), "")
 	m.images.Disable()
-	m.volumes = m.root.AddSubMenuItem("Volumes: …", "Volumes guardam dados: remova pelo terminal")
+	m.volumes = m.root.AddSubMenuItem("Volumes: …", i18n.T("Volumes hold data: remove them from a terminal"))
 	m.volumes.Disable()
 	m.root.AddSeparator()
-	m.pruneImages = m.root.AddSubMenuItem("Remover imagens sem uso…", "podman image prune --all")
-	m.emptyPods = m.root.AddSubMenuItem("Remover pods vazios…", "podman pod rm")
+	m.pruneImages = m.root.AddSubMenuItem(i18n.T("Remove unused images…"), "podman image prune --all")
+	m.emptyPods = m.root.AddSubMenuItem(i18n.T("Remove empty pods…"), "podman pod rm")
 	a.on(m.pruneImages, done, a.pruneImages)
 	a.on(m.emptyPods, done, a.removeEmptyPods)
 	return m
@@ -441,19 +442,19 @@ func (a *App) updateCleanup() {
 		return
 	}
 	for _, du := range a.disk {
-		label := du.Size + " · " + du.Reclaimable + " liberáveis"
+		label := i18n.F("%s · %s reclaimable", du.Size, du.Reclaimable)
 		switch du.Type {
 		case "Images":
-			a.cleanup.images.SetTitle("Imagens: " + label)
+			a.cleanup.images.SetTitle(i18n.F("Images: %s", label))
 		case "Local Volumes":
 			a.cleanup.volumes.SetTitle("Volumes: " + label)
 		}
 	}
 	if n := len(a.emptyPods); n > 0 {
-		a.cleanup.emptyPods.SetTitle(fmt.Sprintf("Remover pods vazios (%d)…", n))
+		a.cleanup.emptyPods.SetTitle(i18n.F("Remove empty pods (%d)…", n))
 		a.cleanup.emptyPods.Enable()
 	} else {
-		a.cleanup.emptyPods.SetTitle("Remover pods vazios…")
+		a.cleanup.emptyPods.SetTitle(i18n.T("Remove empty pods…"))
 		a.cleanup.emptyPods.Disable()
 	}
 }

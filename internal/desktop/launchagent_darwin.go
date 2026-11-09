@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 import (
 	"bytes"
@@ -29,12 +29,6 @@ func LoginItemEnabled() bool {
 func launchAgentEnabled() bool {
 	_, err := os.Stat(launchAgentPath())
 	return err == nil
-}
-
-// CanRunAtLogin is false for `go run` binaries, which live in a temp dir that disappears.
-func CanRunAtLogin() bool {
-	exe, err := os.Executable()
-	return err == nil && !strings.Contains(exe, "go-build")
 }
 
 // programArguments picks how launchd starts the app. Inside a .app bundle it goes through

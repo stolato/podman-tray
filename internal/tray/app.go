@@ -4,6 +4,7 @@ package tray
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,7 +12,7 @@ import (
 
 	"fyne.io/systray"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -24,14 +25,16 @@ const (
 )
 
 type App struct {
-	pm    *podman.Client
-	pmErr error
+	// Set by the refresh loop once podman is found (it may be installed, or show up in
+	// PATH, after the app starts), before any menu item that uses it exists.
+	pm *podman.Client
 
 	refreshCh chan struct{}
 
 	// Canceled on exit so the `podman events` process doesn't outlive the app.
 	ctx        context.Context
 	stop       context.CancelFunc
+	eventsMu   sync.Mutex
 	eventsDone chan struct{} // closed when watchEvents returns; nil if it never started
 
 	mu            sync.Mutex
@@ -72,11 +75,8 @@ type App struct {
 }
 
 func New() *App {
-	pm, err := podman.New()
 	ctx, stop := context.WithCancel(context.Background())
 	a := &App{
-		pm:           pm,
-		pmErr:        err,
 		refreshCh:    make(chan struct{}, 1),
 		ctx:          ctx,
 		stop:         stop,
@@ -93,28 +93,48 @@ func New() *App {
 func (a *App) OnReady() {
 	a.setActiveIcon(false)
 	systray.SetTooltip(VersionString())
-	macos.SetupNotifications()
-	if err := macos.SyncLoginItem(); err != nil {
-		macos.Notify("Erro ao atualizar login item", err.Error())
+	desktop.SetupNotifications()
+	if err := desktop.SyncLoginItem(); err != nil {
+		desktop.Notify("Erro ao atualizar login item", err.Error())
 	}
 	go a.loop()
 	go a.watchMenuOpen()
 	go a.watchUpdates()
+}
+
+// connect looks for podman until it's found, then starts watching its events. Called by
+// the refresh loop, so a podman installed after the app started is picked up without a
+// restart.
+func (a *App) connect() error {
 	if a.pm != nil {
+		return nil
+	}
+	pm, err := podman.New()
+	if err != nil {
+		return err
+	}
+	a.pm = pm
+	a.eventsMu.Lock()
+	defer a.eventsMu.Unlock()
+	if a.ctx.Err() == nil { // not quitting
 		a.eventsDone = make(chan struct{})
 		go a.watchEvents()
 	}
+	return nil
 }
 
 // OnExit runs before the app terminates. Canceling the context kills `podman events`;
 // waiting for watchEvents makes sure that happened before the process is gone.
 func (a *App) OnExit() {
 	a.stop()
-	if a.eventsDone == nil {
+	a.eventsMu.Lock()
+	done := a.eventsDone
+	a.eventsMu.Unlock()
+	if done == nil {
 		return
 	}
 	select {
-	case <-a.eventsDone:
+	case <-done:
 	case <-time.After(2 * time.Second):
 	}
 }
@@ -166,6 +186,15 @@ func (a *App) watchMenuOpen() {
 	}
 }
 
+// menuOpenEvents is false on Windows, where systray doesn't report the menu opening.
+var menuOpenEvents = runtime.GOOS != "windows"
+
+// wantDetails reports whether to fetch what only the menu shows (stats, disk usage):
+// while it's in use, or on every refresh where there's no telling.
+func (a *App) wantDetails() bool {
+	return !menuOpenEvents || a.menuRecentlyOpened()
+}
+
 func (a *App) menuRecentlyOpened() bool {
 	return time.Since(time.Unix(0, a.menuOpenedAt.Load())) < statsWindow
 }
@@ -183,8 +212,8 @@ type snapshot struct {
 const diskInterval = time.Minute
 
 func (a *App) fetch() snapshot {
-	if a.pmErr != nil {
-		return snapshot{err: a.pmErr}
+	if err := a.connect(); err != nil {
+		return snapshot{err: err}
 	}
 	cs, err := a.pm.ListContainers()
 	s := snapshot{containers: cs, err: err}
@@ -194,7 +223,7 @@ func (a *App) fetch() snapshot {
 		return s
 	}
 	// Disk usage and stats are only shown in the menu, so skip them while nobody is looking.
-	if a.menuRecentlyOpened() && (a.diskStale.Swap(false) || time.Since(a.diskAt) > diskInterval) {
+	if a.wantDetails() && (a.diskStale.Swap(false) || time.Since(a.diskAt) > diskInterval) {
 		a.diskAt = time.Now()
 		if du, err := a.pm.DiskUsage(); err == nil {
 			a.disk = du
@@ -203,7 +232,7 @@ func (a *App) fetch() snapshot {
 			a.emptyPods = pods
 		}
 	}
-	if a.menuRecentlyOpened() && anyRunning(cs) {
+	if a.wantDetails() && anyRunning(cs) {
 		if ss, err := a.pm.Stats(); err == nil {
 			s.statsAt = time.Now()
 			s.stats = make(map[string]podman.Stats, len(ss))

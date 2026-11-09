@@ -1,4 +1,4 @@
-package macos
+package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
@@ -16,6 +16,8 @@ import "C"
 import (
 	"errors"
 	"unsafe"
+
+	"podman-tray/internal/i18n"
 )
 
 // SMAppServiceStatus values.
@@ -23,10 +25,6 @@ const (
 	statusEnabled          = 1
 	statusRequiresApproval = 2
 )
-
-// ErrLoginItemNeedsApproval means the login item is registered but turned off in
-// System Settings > General > Login Items, which SetLoginItem has opened.
-var ErrLoginItemNeedsApproval = errors.New("ative o Podman Tray em Ajustes do Sistema → Geral → Itens de Início")
 
 // useAppService reports whether the login item goes through SMAppService (macOS 13+),
 // which lists the app under Login Items in System Settings. It needs an app bundle;
@@ -42,7 +40,7 @@ func appServiceOn() bool {
 func setAppService(enabled bool) error {
 	if msg := C.pt_login_set(C.bool(enabled)); msg != nil {
 		defer C.free(unsafe.Pointer(msg))
-		return errors.New(C.GoString(msg))
+		return errors.New(i18n.T(C.GoString(msg)))
 	}
 	if enabled && C.pt_login_status() == statusRequiresApproval {
 		C.pt_open_login_items_settings()

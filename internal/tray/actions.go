@@ -7,9 +7,11 @@ import (
 	"strings"
 	"sync"
 
+	"podman-tray/internal/i18n"
+
 	"fyne.io/systray"
 
-	"podman-tray/internal/macos"
+	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
 )
 
@@ -52,7 +54,7 @@ func (a *App) containerAction(action, name string) {
 		switch {
 		case !ran:
 		case err != nil:
-			macos.Notify("Erro: "+action+" "+name, err.Error())
+			desktop.Notify(i18n.F("Error: %s %s", action, name), err.Error())
 		default:
 			a.notifyDone("Podman Tray", fmt.Sprintf("%s: %s ok", name, action))
 		}
@@ -66,7 +68,7 @@ func (a *App) containerAction(action, name string) {
 func (a *App) bulk(action string, g *podman.Group) {
 	cs, err := a.pm.ListContainers()
 	if err != nil {
-		macos.Notify("Erro ao listar containers", err.Error())
+		desktop.Notify(i18n.T("Error listing containers"), err.Error())
 		return
 	}
 	title := "Podman Tray"
@@ -75,21 +77,24 @@ func (a *App) bulk(action string, g *podman.Group) {
 		title = g.Name
 	}
 	targets := bulkTargets(cs, action)
-
-	done, failVerb := "parados", "parar"
-	if action == "start" {
-		done, failVerb = "iniciados", "iniciar"
-	}
 	if len(targets) == 0 {
-		macos.Notify(title, "Nenhum container para "+failVerb)
+		desktop.Notify(title, i18n.T(bulkMessages[action].none))
 		return
 	}
-	go a.runBulk(title, targets, done, failVerb)
+	go a.runBulk(title, targets, action)
 }
 
-// runBulk runs the targets in parallel and sends a single notification at the end.
-// It reports whether all of them succeeded.
-func (a *App) runBulk(title string, targets []bulkTarget, done, failVerb string) bool {
+// bulkMessages are the notifications of a bulk action, by action. Whole sentences, so
+// each language can word them its own way.
+var bulkMessages = map[string]struct{ none, done, failed string }{
+	"start":  {"No containers to start", "%d containers started", "%s: failed to start %d of %d containers"},
+	"stop":   {"No containers to stop", "%d containers stopped", "%s: failed to stop %d of %d containers"},
+	"remove": {"No containers to remove", "%d containers removed", "%s: failed to remove %d of %d containers"},
+}
+
+// runBulk runs the targets of a bulk action (start, stop or remove) in parallel and sends
+// a single notification at the end. It reports whether all of them succeeded.
+func (a *App) runBulk(title string, targets []bulkTarget, action string) bool {
 	var (
 		wg     sync.WaitGroup
 		mu     sync.Mutex
@@ -115,12 +120,13 @@ func (a *App) runBulk(title string, targets []bulkTarget, done, failVerb string)
 	}
 	wg.Wait()
 
+	msgs := bulkMessages[action]
 	if len(failed) == 0 {
-		a.notifyDone(title, fmt.Sprintf("%d containers %s", ok, done))
+		a.notifyDone(title, i18n.F(msgs.done, ok))
 		return true
 	}
-	macos.Notify(
-		fmt.Sprintf("%s: erro ao %s %d de %d containers", title, failVerb, len(failed), len(targets)),
+	desktop.Notify(
+		i18n.F(msgs.failed, title, len(failed), len(targets)),
 		truncate(strings.Join(failed, ", ")+" — "+errs[0], 200),
 	)
 	return false
@@ -140,7 +146,7 @@ func (a *App) groupAction(action string, g podman.Group) {
 func (a *App) podAction(action string, g podman.Group, fn func() error) {
 	cs, err := a.pm.ListContainers()
 	if err != nil {
-		macos.Notify("Erro ao listar containers", err.Error())
+		desktop.Notify(i18n.T("Error listing containers"), err.Error())
 		return
 	}
 	var marked []string
@@ -157,7 +163,7 @@ func (a *App) podAction(action string, g podman.Group, fn func() error) {
 		}
 		a.triggerRefresh()
 		if err != nil {
-			macos.Notify("Erro: pod "+action+" "+g.Name, err.Error())
+			desktop.Notify(i18n.F("Error: pod %s %s", action, g.Name), err.Error())
 			return
 		}
 		a.notifyDone("Podman Tray", fmt.Sprintf("pod %s: %s ok", g.Name, action))
@@ -166,7 +172,7 @@ func (a *App) podAction(action string, g podman.Group, fn func() error) {
 
 // removeContainer stops and removes a container, after confirmation.
 func (a *App) removeContainer(name string) {
-	if !macos.Confirm("Remover container "+name+"?", "O container será parado e removido. Volumes não são apagados.", "Remover") {
+	if !desktop.Confirm(i18n.F("Remove container %s?", name), i18n.T("The container will be stopped and removed. Volumes are kept."), i18n.T("Remove")) {
 		return
 	}
 	a.containerAction("remove", name)
@@ -178,25 +184,25 @@ func (a *App) removeContainer(name string) {
 func (a *App) removeGroup(g podman.Group) {
 	cs, err := a.pm.ListContainers()
 	if err != nil {
-		macos.Notify("Erro ao listar containers", err.Error())
+		desktop.Notify(i18n.T("Error listing containers"), err.Error())
 		return
 	}
 	members := slices.DeleteFunc(slices.Clone(cs), func(c podman.Container) bool { return c.Group() != g })
 
 	if g.Kind == podman.GroupPod {
-		msg := fmt.Sprintf("O pod e seus %d containers serão parados e removidos. Volumes não são apagados.", len(members))
-		if macos.Confirm("Remover pod "+g.Name+"?", msg, "Remover") {
+		msg := i18n.F("The pod and its %d containers will be stopped and removed. Volumes are kept.", len(members))
+		if desktop.Confirm(i18n.F("Remove pod %s?", g.Name), msg, i18n.T("Remove")) {
 			a.podAction("remove", g, func() error { return a.pm.RemovePod(g.Name) })
 		}
 		return
 	}
 
 	if len(members) == 0 {
-		macos.Notify(g.Name, "Nenhum container para remover")
+		desktop.Notify(g.Name, i18n.T(bulkMessages["remove"].none))
 		return
 	}
-	msg := fmt.Sprintf("%d containers do projeto serão parados e removidos. Redes e volumes não são apagados; um compose up recria tudo.", len(members))
-	if !macos.Confirm("Remover containers de "+g.Name+"?", msg, "Remover") {
+	msg := i18n.F("%d containers of the project will be stopped and removed. Networks and volumes are kept; a compose up recreates everything.", len(members))
+	if !desktop.Confirm(i18n.F("Remove the containers of %s?", g.Name), msg, i18n.T("Remove")) {
 		return
 	}
 	targets := make([]bulkTarget, len(members))
@@ -205,12 +211,12 @@ func (a *App) removeGroup(g podman.Group) {
 	}
 	pods := projectPods(cs, g)
 	go func() {
-		if !a.runBulk(g.Name, targets, "removidos", "remover") {
+		if !a.runBulk(g.Name, targets, "remove") {
 			return
 		}
 		for _, pod := range pods {
 			if err := a.pm.RemovePod(pod); err != nil {
-				macos.Notify("Erro ao remover pod "+pod, err.Error())
+				desktop.Notify(i18n.F("Error removing pod %s", pod), err.Error())
 			}
 		}
 	}()
@@ -264,10 +270,10 @@ func (a *App) machineName() (string, bool) {
 	m, err := a.pm.Machine()
 	switch {
 	case err != nil:
-		macos.Notify("Erro ao consultar Podman machine", err.Error())
+		desktop.Notify(i18n.T("Error checking the Podman machine"), err.Error())
 		return "", false
 	case m == nil:
-		macos.Notify("Podman Tray", "Nenhuma Podman machine encontrada")
+		desktop.Notify("Podman Tray", i18n.T("No Podman machine found"))
 		return "", false
 	}
 	return m.Name, true
@@ -303,9 +309,9 @@ func (a *App) startMachine() {
 		switch {
 		case !ran:
 		case err != nil:
-			macos.Notify("Erro ao iniciar machine", err.Error())
+			desktop.Notify(i18n.T("Error starting the machine"), err.Error())
 		default:
-			a.notifyDone("Podman Tray", "Podman machine iniciada")
+			a.notifyDone("Podman Tray", i18n.T("Podman machine started"))
 		}
 	}()
 }
@@ -315,7 +321,7 @@ func (a *App) stopMachine() {
 	if !ok {
 		return
 	}
-	if !macos.Confirm("Parar Podman machine", "Todos os containers em execução serão interrompidos.", "Parar") {
+	if !desktop.Confirm(i18n.T("Stop the Podman machine?"), i18n.T("All running containers will be stopped."), i18n.T("Stop")) {
 		return
 	}
 	go func() {
@@ -323,40 +329,41 @@ func (a *App) stopMachine() {
 		switch {
 		case !ran:
 		case err != nil:
-			macos.Notify("Erro ao parar machine", err.Error())
+			desktop.Notify(i18n.T("Error stopping the machine"), err.Error())
 		default:
-			a.notifyDone("Podman Tray", "Podman machine parada")
+			a.notifyDone("Podman Tray", i18n.T("Podman machine stopped"))
 		}
 	}()
 }
 
 func (a *App) openNotificationSettings() {
-	if err := macos.OpenNotificationSettings(); err != nil {
-		macos.Notify("Erro ao abrir Ajustes", err.Error())
+	if err := desktop.OpenNotificationSettings(); err != nil {
+		desktop.Notify(i18n.T("Error opening the settings"), err.Error())
 	}
 }
 
 func (a *App) openURL(url string) {
-	if err := macos.OpenURL(url); err != nil {
-		macos.Notify("Erro ao abrir "+url, err.Error())
+	if err := desktop.OpenURL(url); err != nil {
+		desktop.Notify(i18n.F("Error opening %s", url), err.Error())
 	}
 }
 
-func (a *App) terminal(cmd string) {
-	if err := macos.OpenInTerminal(cmd); err != nil {
-		macos.Notify("Erro ao abrir Terminal", err.Error())
+// terminal runs podman with args in a new terminal window, through a pager if pager.
+func (a *App) terminal(pager bool, args ...string) {
+	if err := desktop.OpenInTerminal(append([]string{a.pm.Bin()}, args...), pager); err != nil {
+		desktop.Notify(i18n.T("Error opening a terminal"), err.Error())
 	}
 }
 
 func (a *App) toggleLogin(item *systray.MenuItem) {
-	err := macos.SetLoginItem(!item.Checked())
+	err := desktop.SetLoginItem(!item.Checked())
 	switch {
-	case errors.Is(err, macos.ErrLoginItemNeedsApproval):
-		macos.Notify("Abrir ao iniciar sessão", err.Error())
+	case errors.Is(err, desktop.ErrLoginItemNeedsApproval):
+		desktop.Notify(i18n.T("Open at login"), err.Error())
 	case err != nil:
-		macos.Notify("Erro", err.Error())
+		desktop.Notify(i18n.T("Error"), err.Error())
 	}
-	if macos.LoginItemEnabled() {
+	if desktop.LoginItemEnabled() {
 		item.Check()
 	} else {
 		item.Uncheck()
@@ -366,14 +373,14 @@ func (a *App) toggleLogin(item *systray.MenuItem) {
 // notifyDone reports an action that worked, unless the user turned those off.
 func (a *App) notifyDone(title, msg string) {
 	if !a.quiet.Load() {
-		macos.Notify(title, msg)
+		desktop.Notify(title, msg)
 	}
 }
 
 func (a *App) toggleNotifyDone(item *systray.MenuItem) {
 	quiet := item.Checked() // checked = notify; clicking flips it
 	if err := saveSettings(a.settingsPath, settings{QuietSuccess: quiet}); err != nil {
-		macos.Notify("Erro ao salvar preferência", err.Error())
+		desktop.Notify(i18n.T("Error saving the setting"), err.Error())
 		return
 	}
 	a.quiet.Store(quiet)
@@ -385,16 +392,16 @@ func (a *App) toggleNotifyDone(item *systray.MenuItem) {
 }
 
 func (a *App) copy(text string) {
-	if err := macos.CopyToClipboard(text); err != nil {
-		macos.Notify("Erro ao copiar", err.Error())
+	if err := desktop.CopyToClipboard(text); err != nil {
+		desktop.Notify(i18n.T("Error copying"), err.Error())
 	}
 }
 
 // pruneImages removes every image no container uses, after confirmation.
 func (a *App) pruneImages() {
-	if !macos.Confirm("Remover imagens sem uso?",
-		"Todas as imagens que nenhum container usa serão apagadas. Elas são baixadas de novo quando precisar.",
-		"Remover") {
+	if !desktop.Confirm(i18n.T("Remove unused images?"),
+		i18n.T("Every image no container uses will be deleted. They are downloaded again when needed."),
+		i18n.T("Remove")) {
 		return
 	}
 	go func() {
@@ -402,10 +409,10 @@ func (a *App) pruneImages() {
 		a.diskStale.Store(true)
 		a.triggerRefresh()
 		if err != nil {
-			macos.Notify("Erro ao remover imagens", err.Error())
+			desktop.Notify(i18n.T("Error removing images"), err.Error())
 			return
 		}
-		a.notifyDone("Podman Tray", fmt.Sprintf("%d imagens removidas", n))
+		a.notifyDone("Podman Tray", i18n.F("%d images removed", n))
 	}()
 }
 
@@ -415,13 +422,13 @@ func (a *App) removeEmptyPods() {
 	pods, err := a.pm.EmptyPods()
 	switch {
 	case err != nil:
-		macos.Notify("Erro ao listar pods", err.Error())
+		desktop.Notify(i18n.T("Error listing pods"), err.Error())
 		return
 	case len(pods) == 0:
-		macos.Notify("Podman Tray", "Nenhum pod vazio")
+		desktop.Notify("Podman Tray", i18n.T("No empty pods"))
 		return
 	}
-	if !macos.Confirm("Remover pods vazios?", truncate(strings.Join(pods, ", "), 300), "Remover") {
+	if !desktop.Confirm(i18n.T("Remove empty pods?"), truncate(strings.Join(pods, ", "), 300), i18n.T("Remove")) {
 		return
 	}
 	go func() {
@@ -434,9 +441,9 @@ func (a *App) removeEmptyPods() {
 		a.diskStale.Store(true)
 		a.triggerRefresh()
 		if len(failed) > 0 {
-			macos.Notify(fmt.Sprintf("Erro ao remover %d de %d pods", len(failed), len(pods)), truncate(failed[0], 200))
+			desktop.Notify(i18n.F("Error removing %d of %d pods", len(failed), len(pods)), truncate(failed[0], 200))
 			return
 		}
-		a.notifyDone("Podman Tray", fmt.Sprintf("%d pods vazios removidos", len(pods)))
+		a.notifyDone("Podman Tray", i18n.F("%d empty pods removed", len(pods)))
 	}()
 }
