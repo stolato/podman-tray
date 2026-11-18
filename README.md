@@ -124,6 +124,19 @@ tar -xzf podman-tray-*-linux-*.tar.gz && cd podman-tray-*/ && ./install.sh
 
 Instala só para o seu usuário, sem root: o binário em `~/.local/bin`, o atalho no menu de aplicativos e o ícone. Para remover: `./install.sh --uninstall`.
 
+<details>
+<summary>Compilar a partir do código</summary>
+
+Com Go 1.27+:
+
+```bash
+git clone https://github.com/stolato/podman-tray.git && cd podman-tray
+make install     # compila e instala como o install.sh (~/.local/bin), e abre
+make uninstall   # remove o app e o autostart
+```
+
+</details>
+
 Opcionais: `zenity` ou `kdialog` (confirmações; sem eles, ações destrutivas são recusadas) e `wl-clipboard`, `xclip` ou `xsel` (copiar).
 
 ### Windows

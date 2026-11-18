@@ -17,8 +17,9 @@ make vet        # go vet
 make build      # só o binário nativo em bin/podman-tray
 make universal  # binário universal em bin/podman-tray-universal
 make app        # gera "dist/build.noindex/Podman Tray.app" (universal; .noindex tira do Spotlight)
-make install    # gera o .app, copia para ~/Applications e abre (macOS)
-make uninstall  # remove o app, o login item e o LaunchAgent (macOS)
+make install    # macOS: gera o .app, copia para ~/Applications e abre
+                # Linux: compila e roda o install.sh (~/.local/bin, atalho e ícone) e abre
+make uninstall  # macOS: remove o app, o login item e o LaunchAgent; Linux: install.sh --uninstall
 make cert       # cria o certificado local de assinatura (uma vez)
 make icon       # regenera packaging/AppIcon.icns (e o .png do README) a partir de tools/genicon
 make dmg        # dist/Podman-Tray-<versão>.dmg

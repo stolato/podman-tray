@@ -40,6 +40,9 @@ endif
 # deleted DMG staging folder) make macOS fail to find the app for notification permissions.
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
+# install/uninstall build the .app on macOS, and use packaging/linux/install.sh on Linux.
+OS := $(shell uname -s)
+
 .PHONY: run build universal test vet icon cert app install dmg linux windows uninstall clean
 
 run:
@@ -81,6 +84,22 @@ app: universal
 	cp -R packaging/*.lproj "$(APP)/Contents/Resources/"
 	$(CODESIGN) --entitlements packaging/entitlements.plist "$(APP)"
 
+ifeq ($(OS),Linux)
+LINUX_STAGE := dist/install.noindex
+
+# Builds for this machine and runs the same install.sh as the release tarball: binary in
+# ~/.local/bin, app menu entry and icon, then starts it.
+install:
+	rm -rf $(LINUX_STAGE) && mkdir -p $(LINUX_STAGE)
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(LINUX_STAGE)/$(BIN) ./cmd/$(BIN)
+	cp packaging/AppIcon.png $(LINUX_STAGE)/podman-tray.png
+	cp packaging/linux/podman-tray.desktop packaging/linux/install.sh $(LINUX_STAGE)/
+	$(LINUX_STAGE)/install.sh
+	rm -rf $(LINUX_STAGE)
+
+uninstall:
+	packaging/linux/install.sh --uninstall
+else
 install: app
 	mkdir -p "$(INSTALL)"
 	rm -rf "$(INSTALL)/Podman Tray.app"
@@ -142,6 +161,7 @@ uninstall:
 	-"$(INSTALL)/Podman Tray.app/Contents/MacOS/$(BIN)" --unregister-login
 	rm -rf "$(INSTALL)/Podman Tray.app"
 	rm -f $(HOME)/Library/LaunchAgents/com.podman-tray.plist
+endif
 
 clean:
 	rm -rf bin dist
