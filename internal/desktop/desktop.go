@@ -8,8 +8,10 @@
 //	OpenNotificationSettings() error
 //	Confirm(title, msg, button) bool      modal warning; false unless the user confirms
 //	OpenURL(url) error
-//	OpenInTerminal(argv, pager) error     run a command in a new terminal window
+//	OpenInTerminal(argv, pager, preferred) error  run a command in a new terminal window
+//	Terminals() []string, DefaultTerminal() string  terminals the user can pick (Linux only)
 //	CopyToClipboard(text) error
+//	AlreadyRunning() bool                 single-instance lock, taken at startup
 //	LoginItemEnabled() bool, CanRunAtLogin() bool, SetLoginItem(bool) error, SyncLoginItem() error
 package desktop
 

@@ -189,6 +189,20 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// Saving one preference must not reset the others.
+func TestSaveSettingKeepsOthers(t *testing.T) {
+	a := &App{settingsPath: filepath.Join(t.TempDir(), "settings.json")}
+	if err := a.saveSetting(func(s *settings) { s.Terminal = "foot" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.saveSetting(func(s *settings) { s.QuietSuccess = true }); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadSettings(a.settingsPath); got != (settings{QuietSuccess: true, Terminal: "foot"}) {
+		t.Errorf("saved settings = %+v", got)
+	}
+}
+
 func TestHealthChanged(t *testing.T) {
 	a := &App{health: map[string]string{}}
 	steps := []struct {

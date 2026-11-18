@@ -11,6 +11,9 @@ type settings struct {
 	// QuietSuccess skips notifications for actions that worked; errors and alerts
 	// (a container crashed or became unhealthy) are always shown.
 	QuietSuccess bool `json:"quietSuccess"`
+	// Terminal is where Logs, Shell and Inspect open (Linux), by command name; "" picks
+	// one automatically.
+	Terminal string `json:"terminal,omitempty"`
 }
 
 func settingsPath() string {

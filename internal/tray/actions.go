@@ -344,7 +344,7 @@ func (a *App) openURL(url string) {
 
 // terminal runs podman with args in a new terminal window, through a pager if pager.
 func (a *App) terminal(pager bool, args ...string) {
-	if err := desktop.OpenInTerminal(append([]string{a.pm.Bin()}, args...), pager); err != nil {
+	if err := desktop.OpenInTerminal(append([]string{a.pm.Bin()}, args...), pager, a.terminalChoice()); err != nil {
 		desktop.Notify("Erro ao abrir Terminal", err.Error())
 	}
 }
@@ -373,7 +373,7 @@ func (a *App) notifyDone(title, msg string) {
 
 func (a *App) toggleNotifyDone(item *systray.MenuItem) {
 	quiet := item.Checked() // checked = notify; clicking flips it
-	if err := saveSettings(a.settingsPath, settings{QuietSuccess: quiet}); err != nil {
+	if err := a.saveSetting(func(s *settings) { s.QuietSuccess = quiet }); err != nil {
 		desktop.Notify("Erro ao salvar preferência", err.Error())
 		return
 	}
@@ -382,6 +382,41 @@ func (a *App) toggleNotifyDone(item *systray.MenuItem) {
 		item.Uncheck()
 	} else {
 		item.Check()
+	}
+}
+
+// saveSetting applies change to the settings and saves them all; on error nothing changes.
+func (a *App) saveSetting(change func(*settings)) error {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	s := a.prefs
+	change(&s)
+	if err := saveSettings(a.settingsPath, s); err != nil {
+		return err
+	}
+	a.prefs = s
+	return nil
+}
+
+// terminalChoice is the terminal picked in the menu, "" for automatic.
+func (a *App) terminalChoice() string {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	return a.prefs.Terminal
+}
+
+// chooseTerminal saves name ("" for automatic) and moves the check mark to it.
+func (a *App) chooseTerminal(name string, items map[string]*systray.MenuItem) {
+	if err := a.saveSetting(func(s *settings) { s.Terminal = name }); err != nil {
+		desktop.Notify("Erro ao salvar preferência", err.Error())
+	}
+	chosen := a.terminalChoice()
+	for n, item := range items {
+		if n == chosen {
+			item.Check()
+		} else {
+			item.Uncheck()
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package tray
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 
 	"fyne.io/systray"
@@ -83,15 +84,19 @@ func (a *App) build(s snapshot) {
 			a.cleanup = nil
 		}
 
-		systray.AddSeparator()
-		a.machine = &machineMenu{root: systray.AddMenuItem("Podman machine", "")}
-		a.machine.info = a.machine.root.AddSubMenuItem("", "")
-		a.machine.info.Disable()
-		a.machine.root.AddSeparator()
-		a.machine.start = a.machine.root.AddSubMenuItem("▶ Iniciar", "")
-		a.machine.stop = a.machine.root.AddSubMenuItem("■ Parar", "")
-		a.on(a.machine.start, done, a.startMachine)
-		a.on(a.machine.stop, done, a.stopMachine)
+		// Not built (rather than hidden) when absent: separators can't be hidden, so a
+		// hidden item would leave two of them back to back.
+		if showMachine(s) {
+			systray.AddSeparator()
+			a.machine = &machineMenu{root: systray.AddMenuItem("Podman machine", "")}
+			a.machine.info = a.machine.root.AddSubMenuItem("", "")
+			a.machine.info.Disable()
+			a.machine.root.AddSeparator()
+			a.machine.start = a.machine.root.AddSubMenuItem("▶ Iniciar", "")
+			a.machine.stop = a.machine.root.AddSubMenuItem("■ Parar", "")
+			a.on(a.machine.start, done, a.startMachine)
+			a.on(a.machine.stop, done, a.stopMachine)
+		}
 	}
 
 	systray.AddSeparator()
@@ -107,6 +112,10 @@ func (a *App) build(s snapshot) {
 
 	notifyDone := options.AddSubMenuItemCheckbox("Notificar ações concluídas", "Erros e alertas sempre são notificados", !a.quiet.Load())
 	a.on(notifyDone, done, func() { a.toggleNotifyDone(notifyDone) })
+
+	if terms := desktop.Terminals(); len(terms) > 0 {
+		a.buildTerminalMenu(options, terms, done)
+	}
 
 	// Not under Opções: it's a warning, only shown while notifications are off.
 
@@ -124,6 +133,28 @@ func (a *App) build(s snapshot) {
 	})
 	systray.AddSeparator()
 	a.on(systray.AddMenuItem("Sair", ""), done, systray.Quit)
+}
+
+// buildTerminalMenu lets the user pick where Logs, Shell and Inspect open. A saved
+// terminal that's no longer installed shows, and works, as Automático.
+func (a *App) buildTerminalMenu(parent *systray.MenuItem, terms []string, done <-chan struct{}) {
+	chosen := a.terminalChoice()
+	if !slices.Contains(terms, chosen) {
+		chosen = ""
+	}
+	menu := parent.AddSubMenuItem("Terminal", "Onde abrir Logs, Shell e Inspect")
+	auto := "Automático"
+	if d := desktop.DefaultTerminal(); d != "" {
+		auto += " (" + d + ")"
+	}
+	items := map[string]*systray.MenuItem{"": menu.AddSubMenuItemCheckbox(auto, "", chosen == "")}
+	menu.AddSeparator()
+	for _, t := range terms {
+		items[t] = menu.AddSubMenuItemCheckbox(t, "", chosen == t)
+	}
+	for name, item := range items {
+		a.on(item, done, func() { a.chooseTerminal(name, items) })
+	}
 }
 
 // buildGroup adds a compose project or pod, with its containers in the submenu.
@@ -321,12 +352,6 @@ func (a *App) updateMachine(m *podman.Machine, action string) {
 	if a.machine == nil {
 		return
 	}
-	// On Linux podman runs natively; a machine is the exception, so don't advertise one.
-	if m == nil && action == "" && runtime.GOOS == "linux" {
-		a.machine.root.Hide()
-		return
-	}
-	a.machine.root.Show()
 	state := "não encontrada"
 	switch {
 	case action == "start":
@@ -352,6 +377,12 @@ func (a *App) updateMachine(m *podman.Machine, action string) {
 	idle := action == "" && m != nil
 	setEnabled(a.machine.start, idle && m.Stopped())
 	setEnabled(a.machine.stop, idle && m.Running)
+}
+
+// showMachine reports whether the menu has a Podman machine section. On Linux podman runs
+// natively and a machine is the exception, so the section only appears when one exists.
+func showMachine(s snapshot) bool {
+	return runtime.GOOS != "linux" || s.machine != nil
 }
 
 // on dispatches clicks on item to fn until done is closed (menu rebuilt).

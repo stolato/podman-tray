@@ -21,6 +21,13 @@ func main() {
 		return
 	}
 
+	// Autostart plus a launch from the app menu would otherwise put two icons in the tray.
+	// Exits quietly, like macOS does for a second launch of the .app.
+	if desktop.AlreadyRunning() {
+		fmt.Fprintln(os.Stderr, "podman-tray: já está aberto")
+		return
+	}
+
 	app := tray.New()
 	systray.Run(app.OnReady, app.OnExit)
 }

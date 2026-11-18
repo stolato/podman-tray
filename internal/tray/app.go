@@ -50,7 +50,9 @@ type App struct {
 	alertedAt map[string]time.Time // container name -> last crash/unhealthy alert
 
 	settingsPath string
-	quiet        atomic.Bool             // settings.QuietSuccess
+	settingsMu   sync.Mutex
+	prefs        settings                // guarded by settingsMu
+	quiet        atomic.Bool             // prefs.QuietSuccess, readable without the lock
 	newRelease   atomic.Pointer[release] // newer release, once found
 	diskStale    atomic.Bool             // refetch disk usage on the next refresh
 
@@ -87,7 +89,8 @@ func New() *App {
 		cpuPrev:      map[string]cpuSample{},
 		settingsPath: settingsPath(),
 	}
-	a.quiet.Store(loadSettings(a.settingsPath).QuietSuccess)
+	a.prefs = loadSettings(a.settingsPath)
+	a.quiet.Store(a.prefs.QuietSuccess)
 	return a
 }
 
@@ -233,7 +236,7 @@ func (a *App) refresh() snapshot {
 		g := c.Group()
 		keys[i] = g.Kind + ":" + g.Name + "/" + c.Name() + "[" + c.PortList() + "]"
 	}
-	key := fmt.Sprintf("%s|%t|%t", strings.Join(keys, ","), s.err != nil, s.machineStopped)
+	key := fmt.Sprintf("%s|%t|%t|%t", strings.Join(keys, ","), s.err != nil, s.machineStopped, showMachine(s))
 	if key != a.layoutKey {
 		a.build(s)
 		a.layoutKey = key

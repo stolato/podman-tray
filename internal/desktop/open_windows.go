@@ -26,9 +26,15 @@ func OpenURL(url string) error {
 	return start(exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url))
 }
 
+// Terminals is empty on Windows: commands open in Windows Terminal when installed.
+func Terminals() []string { return nil }
+
+func DefaultTerminal() string { return "Windows Terminal" }
+
 // OpenInTerminal runs argv in Windows Terminal when installed, else in a console window,
-// through more if pager. cmd /k keeps the window open afterwards.
-func OpenInTerminal(argv []string, pager bool) error {
+// through more if pager. cmd /k keeps the window open afterwards. preferred is ignored
+// (see Terminals).
+func OpenInTerminal(argv []string, pager bool, preferred string) error {
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
 		quoted[i] = syscall.EscapeArg(a)

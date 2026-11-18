@@ -22,8 +22,14 @@ func OpenURL(url string) error {
 	return exec.Command("open", url).Run()
 }
 
+// Terminals is empty on macOS: commands always open in Terminal.app.
+func Terminals() []string { return nil }
+
+func DefaultTerminal() string { return "Terminal" }
+
 // OpenInTerminal runs argv in a new Terminal.app window, through less if pager.
-func OpenInTerminal(argv []string, pager bool) error {
+// preferred is ignored (see Terminals).
+func OpenInTerminal(argv []string, pager bool, preferred string) error {
 	return exec.Command("osascript",
 		"-e", `tell application "Terminal" to activate`,
 		"-e", fmt.Sprintf(`tell application "Terminal" to do script %s`, appleScriptString(shellCommand(argv, pager))),
