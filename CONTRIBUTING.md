@@ -38,21 +38,23 @@ cmd/podman-tray/      # main: inicia o systray (ou --unregister-login, usado pel
 internal/i18n/        # traduções: textos em inglês no código, pt.go com o português; idioma do sistema (lang_*.go)
 internal/podman/      # wrapper do CLI do podman: containers, stats, events, machine (paths_*.go: onde procurar o podman em cada sistema)
 internal/desktop/     # integrações com o sistema, uma implementação por SO (*_darwin, *_linux, *_windows):
-                      #   notificações, confirmação, terminal, navegador, área de transferência, abrir ao iniciar sessão
+                      #   notificações, confirmação, terminal, navegador, área de transferência, abrir ao iniciar sessão,
+                      #   instância única (instance_*.go: nome no D-Bus no Linux, mutex no Windows)
 internal/tray/
   app.go              # ciclo de vida e loop de atualização (intervalos e backoff)
   events.go           # stream de `podman events` com reconexão e debounce; alertas de queda e healthcheck
   menu.go             # montagem e atualização do menu
   actions.go          # ações de container (start/stop/restart/pause, remover, copiar), em lote e de grupo, limpeza, machine, opções
   group.go            # agrupamento por projeto do compose / pod
-  settings.go         # preferências salvas (notificar ações concluídas)
+  settings.go         # preferências salvas (notificar ações concluídas, terminal)
   update.go           # aviso de nova versão (releases do GitHub)
   stats.go            # cálculo de CPU/memória
   icon.go             # ícone da barra de menu (desenhado em código)
   trayicon_*.go       # como o ícone é aplicado: máscara no macOS, colorido (e .ico no Windows) nos outros
 tools/genicon/        # gerador do ícone do app
 tools/local-cert.sh   # certificado local de assinatura (make cert)
-packaging/            # Info.plist, entitlements.plist e AppIcon.icns do bundle (+ AppIcon.png do README)
+packaging/            # Info.plist, entitlements.plist e AppIcon.icns do bundle; AppIcon.png (README e, embutido
+                      #   pelo icon.go, ícone das notificações no Linux)
 packaging/linux/      # .desktop e install.sh do pacote Linux
 ```
 

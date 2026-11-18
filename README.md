@@ -39,7 +39,7 @@ Para o dia a dia, abrir o terminal (ou uma interface completa) só para ver se u
 - Lista de `podman ps -a` com status: 🟢 rodando, 🟠 *unhealthy* (healthcheck falhando), 🟡 pausado/reiniciando, ⚪️ parado, 🔴 erro, ⏳ ação em andamento
 - Submenu por container com **CPU/memória**, imagem e portas clicáveis (UDP aparece, mas não é clicável)
 - **Start**, **Stop**, **Restart**, **Pause**/**Unpause**
-- **Logs…** (`logs -f`), **Shell…** (`exec -it`, com `bash` se existir, senão `sh`) e **Inspect…**, abertos num terminal
+- **Logs…** (`logs -f`), **Shell…** (`exec -it`, com `bash` se existir, senão `sh`) e **Inspect…**, abertos num terminal (no Linux, escolha qual em **⚙️ Opções → Terminal**)
 - **📋 Copiar** ID, nome e URLs das portas
 - **🗑 Remover…** (`rm -f`), com confirmação
 - **Iniciar todos** / **Parar todos**, em paralelo, com uma única notificação de resumo
@@ -77,6 +77,8 @@ Se o container tem projeto e pod ao mesmo tempo (o `podman-compose` cria um pod 
 **Outros**
 
 - **⚙️ Opções → Abrir ao iniciar sessão**, nos três sistemas
+- **⚙️ Opções → Terminal** (Linux): onde abrir Logs, Shell e Inspect. Lista os terminais instalados; **Automático** (o padrão) mostra qual será usado
+- Abre uma vez só: abrir o app de novo com ele já rodando (ex.: pelo menu de aplicativos, com o autostart ligado) não cria um segundo ícone
 - **⬆️ Aviso de nova versão**: consulta o último release no GitHub ao abrir e uma vez por dia
 - Ícone que segue o tema claro/escuro no macOS
 - Interface em português ou inglês, conforme o idioma do sistema. Para forçar um deles, abra o app com `PODMAN_TRAY_LANG=en` (ou `pt-BR`)
@@ -138,7 +140,7 @@ Requer Windows 10 ou 11 e uma Podman machine (instalador oficial).
 |---|---|---|---|
 | Notificações | Central de Notificações | D-Bus (`org.freedesktop.Notifications`) | toast do Windows (via PowerShell) |
 | Confirmações | alerta nativo | `zenity` ou `kdialog` | caixa de mensagem (OK/Cancelar) |
-| Logs/Shell/Inspect | Terminal.app | `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, Kitty, Alacritty… | Windows Terminal, ou `cmd` |
+| Logs/Shell/Inspect | Terminal.app | o escolhido em **⚙️ Opções → Terminal**; no automático, `$TERMINAL`, `xdg-terminal-exec`, `x-terminal-emulator`, GNOME Terminal, Konsole, Ghostty, Kitty, Alacritty… | Windows Terminal, ou `cmd` |
 | Abrir ao iniciar sessão | Itens de Início (`SMAppService`; LaunchAgent no macOS 12) | `~/.config/autostart` | registro `HKCU\…\Run` |
 | Podman machine | sim | só se existir uma (o podman roda nativo) | sim |
 | CPU/memória | a cada 2s com o menu aberto | a cada 2s com o menu aberto | a cada atualização da lista |
@@ -164,6 +166,12 @@ Apps abertos pelo Finder (ou pelo autostart) podem receber um PATH mínimo. O ap
 <summary><b>Linux: o ícone não aparece</b></summary>
 
 O ambiente não tem bandeja StatusNotifierItem. No GNOME, instale a extensão [AppIndicator](https://extensions.gnome.org/extension/615/appindicator-support/).
+</details>
+
+<details>
+<summary><b>Linux: Logs/Shell abrem no terminal errado, ou "nenhum terminal encontrado"</b></summary>
+
+Escolha o terminal em **⚙️ Opções → Terminal**. No **Automático**, o app usa a variável `TERMINAL`, depois o terminal padrão do sistema (`xdg-terminal-exec` ou `x-terminal-emulator`) e, por fim, o primeiro terminal conhecido que estiver instalado. Se o seu não aparece na lista, defina `TERMINAL` com ele (o app passa `-e` antes do comando).
 </details>
 
 <details>
