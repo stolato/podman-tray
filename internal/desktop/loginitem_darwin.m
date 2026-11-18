@@ -33,7 +33,7 @@ char *pt_login_set(bool enable) {
     }
     return NULL;
   }
-  return strdup("requer macOS 13");
+  return strdup("requires macOS 13");
 }
 
 void pt_open_login_items_settings(void) {

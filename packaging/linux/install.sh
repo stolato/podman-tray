@@ -14,7 +14,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 	pkill -x podman-tray 2>/dev/null || true
 	[ -x "$bin/podman-tray" ] && "$bin/podman-tray" --unregister-login || true
 	rm -f "$bin/podman-tray" "$icon" "$desktop"
-	echo "Podman Tray removido."
+	echo "Podman Tray removed."
 	exit 0
 fi
 
@@ -28,4 +28,4 @@ sed "s|^Exec=.*|Exec=\"$bin/podman-tray\"|" "$here/podman-tray.desktop" >"$deskt
 command -v update-desktop-database >/dev/null && update-desktop-database "$data/applications" || true
 
 nohup "$bin/podman-tray" >/dev/null 2>&1 &
-echo "Podman Tray instalado em $bin e iniciado. Para abrir ao iniciar a sessão, use ⚙️ Opções no menu."
+echo "Podman Tray installed in $bin and started. To open it at login, use ⚙️ Options in its menu."

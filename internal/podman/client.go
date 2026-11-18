@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"podman-tray/internal/i18n"
 )
 
 type Client struct {
@@ -32,7 +34,7 @@ func New() (*Client, error) {
 		}
 	}
 	if bin == "" {
-		return nil, errors.New("podman não encontrado no PATH")
+		return nil, errors.New(i18n.T("podman not found in PATH"))
 	}
 
 	// podman finds its helpers (e.g. gvproxy, vfkit) through PATH.

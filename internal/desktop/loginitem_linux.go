@@ -64,7 +64,8 @@ func renderAutostart() ([]byte, error) {
 	return []byte(fmt.Sprintf(`[Desktop Entry]
 Type=Application
 Name=Podman Tray
-Comment=Containers do Podman na bandeja do sistema
+Comment=Podman containers in the system tray
+Comment[pt_BR]=Containers do Podman na bandeja do sistema
 Exec=%s
 Icon=%s
 Terminal=false

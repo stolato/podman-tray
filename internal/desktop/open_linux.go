@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"podman-tray/internal/i18n"
 )
 
 // start launches a program without waiting for it, reaping it when it exits.
@@ -115,7 +117,8 @@ func knownTerminal(name string) terminal {
 // fails, the window waits for Enter so the error can be read.
 func OpenInTerminal(argv []string, pager bool, preferred string) error {
 	script := shellCommand(argv, pager) +
-		`; s=$?; [ $s -eq 0 ] || [ $s -eq 130 ] || { echo; echo "(saiu com código $s; Enter fecha)"; read _; }`
+		`; s=$?; [ $s -eq 0 ] || [ $s -eq 130 ] || { echo; printf ` +
+		shellQuote(i18n.T("(exited with code %s; press Enter to close)")+`\n`) + ` "$s"; read _; }`
 	run := []string{"sh", "-c", script}
 
 	t, path, ok := terminal{}, "", false
@@ -128,7 +131,7 @@ func OpenInTerminal(argv []string, pager bool, preferred string) error {
 		t, path, ok = automaticTerminal()
 	}
 	if !ok {
-		return errors.New("nenhum terminal encontrado; escolha um em ⚙️ Opções → Terminal ou defina a variável TERMINAL")
+		return errors.New(i18n.T("no terminal found; pick one in ⚙️ Options → Terminal or set the TERMINAL variable"))
 	}
 	return start(exec.Command(path, append(append([]string{}, t.args...), run...)...))
 }
@@ -147,5 +150,5 @@ func CopyToClipboard(text string) error {
 			return cmd.Run()
 		}
 	}
-	return errors.New("instale wl-clipboard, xclip ou xsel para copiar")
+	return errors.New(i18n.T("install wl-clipboard, xclip or xsel to copy"))
 }

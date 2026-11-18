@@ -78,6 +78,7 @@ app: universal
 	cp packaging/Info.plist "$(APP)/Contents/Info.plist"
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(BUILD)" "$(APP)/Contents/Info.plist"
 	cp $(ICNS) "$(APP)/Contents/Resources/AppIcon.icns"
+	cp -R packaging/*.lproj "$(APP)/Contents/Resources/"
 	$(CODESIGN) --entitlements packaging/entitlements.plist "$(APP)"
 
 install: app

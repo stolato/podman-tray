@@ -1,8 +1,9 @@
 package tray
 
 import (
-	"fmt"
 	"time"
+
+	"podman-tray/internal/i18n"
 
 	"podman-tray/internal/desktop"
 	"podman-tray/internal/podman"
@@ -64,7 +65,7 @@ func (a *App) onEvent(e podman.Event) {
 			return
 		}
 		if e.Health == "unhealthy" {
-			a.alert(e.Name, "⚠️ "+e.Name+" está unhealthy", "O healthcheck do container está falhando.")
+			a.alert(e.Name, i18n.F("⚠️ %s is unhealthy", e.Name), i18n.T("The container's healthcheck is failing."))
 		}
 	case "remove":
 		a.healthChanged(e.Name, "")
@@ -85,11 +86,11 @@ func (a *App) checkCrash(name string, exitCode int) {
 	if err != nil || st.StoppedByUser { // removed meanwhile (e.g. --rm), or stopped on purpose
 		return
 	}
-	msg := fmt.Sprintf("Saiu com código %d.", exitCode)
+	msg := i18n.F("Exited with code %d.", exitCode)
 	if st.OOMKilled {
-		msg = "Encerrado por falta de memória (OOM)."
+		msg = i18n.T("Killed for running out of memory (OOM).")
 	}
-	a.alert(name, "⚠️ "+name+" parou", msg)
+	a.alert(name, i18n.F("⚠️ %s stopped", name), msg)
 }
 
 // healthChanged records a container's health and reports whether it differs from the last

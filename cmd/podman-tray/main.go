@@ -7,6 +7,7 @@ import (
 	"fyne.io/systray"
 
 	"podman-tray/internal/desktop"
+	"podman-tray/internal/i18n"
 	"podman-tray/internal/tray"
 )
 
@@ -24,7 +25,7 @@ func main() {
 	// Autostart plus a launch from the app menu would otherwise put two icons in the tray.
 	// Exits quietly, like macOS does for a second launch of the .app.
 	if desktop.AlreadyRunning() {
-		fmt.Fprintln(os.Stderr, "podman-tray: já está aberto")
+		fmt.Fprintln(os.Stderr, "podman-tray:", i18n.T("already running"))
 		return
 	}
 

@@ -68,6 +68,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # Lets users check a download: `shasum -a 256 -c SHA256SUMS --ignore-missing`.
+      - run: cd dist && sha256sum * > SHA256SUMS
       - env:
           GH_TOKEN: ${{ github.token }}
         run: >

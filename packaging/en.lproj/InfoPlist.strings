@@ -1,0 +1,2 @@
+/* Shown when macOS asks to let Podman Tray control Terminal. */
+"NSAppleEventsUsageDescription" = "Podman Tray opens Terminal to show the logs, shell and inspect of containers.";

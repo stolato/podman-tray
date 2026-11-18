@@ -74,10 +74,11 @@ bool pt_notifications_denied(void) {
   return status == UNAuthorizationStatusDenied;
 }
 
-bool pt_confirm(const char *title, const char *msg, const char *button) {
+bool pt_confirm(const char *title, const char *msg, const char *button, const char *cancelLabel) {
   NSString *t = [NSString stringWithUTF8String:title];
   NSString *m = [NSString stringWithUTF8String:msg];
   NSString *b = [NSString stringWithUTF8String:button];
+  NSString *c = [NSString stringWithUTF8String:cancelLabel];
   __block NSModalResponse resp = NSAlertFirstButtonReturn;
 
   void (^show)(void) = ^{
@@ -92,7 +93,7 @@ bool pt_confirm(const char *title, const char *msg, const char *button) {
     alert.messageText = t;
     alert.informativeText = m;
     // First button is the default (Return): keep it the safe one.
-    NSButton *cancel = [alert addButtonWithTitle:@"Cancelar"];
+    NSButton *cancel = [alert addButtonWithTitle:c];
     cancel.keyEquivalent = @"\r";
     NSButton *ok = [alert addButtonWithTitle:b];
     ok.keyEquivalent = @"";

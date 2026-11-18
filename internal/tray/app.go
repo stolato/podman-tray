@@ -13,6 +13,7 @@ import (
 	"fyne.io/systray"
 
 	"podman-tray/internal/desktop"
+	"podman-tray/internal/i18n"
 	"podman-tray/internal/podman"
 )
 
@@ -25,14 +26,16 @@ const (
 )
 
 type App struct {
-	pm    *podman.Client
-	pmErr error
+	// Set by the refresh loop once podman is found (it may be installed, or show up in
+	// PATH, after the app starts), before any menu item that uses it exists.
+	pm *podman.Client
 
 	refreshCh chan struct{}
 
 	// Canceled on exit so the `podman events` process doesn't outlive the app.
 	ctx        context.Context
 	stop       context.CancelFunc
+	eventsMu   sync.Mutex
 	eventsDone chan struct{} // closed when watchEvents returns; nil if it never started
 
 	mu            sync.Mutex
@@ -75,11 +78,8 @@ type App struct {
 }
 
 func New() *App {
-	pm, err := podman.New()
 	ctx, stop := context.WithCancel(context.Background())
 	a := &App{
-		pm:           pm,
-		pmErr:        err,
 		refreshCh:    make(chan struct{}, 1),
 		ctx:          ctx,
 		stop:         stop,
@@ -99,26 +99,46 @@ func (a *App) OnReady() {
 	systray.SetTooltip(VersionString())
 	desktop.SetupNotifications()
 	if err := desktop.SyncLoginItem(); err != nil {
-		desktop.Notify("Erro ao atualizar login item", err.Error())
+		desktop.Notify(i18n.T("Error updating the login item"), err.Error())
 	}
 	go a.loop()
 	go a.watchMenuOpen()
 	go a.watchUpdates()
+}
+
+// connect looks for podman until it's found, then starts watching its events. Called by
+// the refresh loop, so a podman installed after the app started is picked up without a
+// restart.
+func (a *App) connect() error {
 	if a.pm != nil {
+		return nil
+	}
+	pm, err := podman.New()
+	if err != nil {
+		return err
+	}
+	a.pm = pm
+	a.eventsMu.Lock()
+	defer a.eventsMu.Unlock()
+	if a.ctx.Err() == nil { // not quitting
 		a.eventsDone = make(chan struct{})
 		go a.watchEvents()
 	}
+	return nil
 }
 
 // OnExit runs before the app terminates. Canceling the context kills `podman events`;
 // waiting for watchEvents makes sure that happened before the process is gone.
 func (a *App) OnExit() {
 	a.stop()
-	if a.eventsDone == nil {
+	a.eventsMu.Lock()
+	done := a.eventsDone
+	a.eventsMu.Unlock()
+	if done == nil {
 		return
 	}
 	select {
-	case <-a.eventsDone:
+	case <-done:
 	case <-time.After(2 * time.Second):
 	}
 }
@@ -196,8 +216,8 @@ type snapshot struct {
 const diskInterval = time.Minute
 
 func (a *App) fetch() snapshot {
-	if a.pmErr != nil {
-		return snapshot{err: a.pmErr}
+	if err := a.connect(); err != nil {
+		return snapshot{err: err}
 	}
 	cs, err := a.pm.ListContainers()
 	s := snapshot{containers: cs, err: err}

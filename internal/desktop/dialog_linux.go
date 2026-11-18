@@ -3,6 +3,8 @@ package desktop
 import (
 	"os/exec"
 	"strings"
+
+	"podman-tray/internal/i18n"
 )
 
 // Confirm asks through zenity (GNOME and most others) or kdialog (KDE). Without either it
@@ -11,12 +13,12 @@ func Confirm(title, msg, button string) bool {
 	if zenity, err := exec.LookPath("zenity"); err == nil {
 		text := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(msg) // Pango markup
 		return exec.Command(zenity, "--question", "--title", title, "--text", text,
-			"--ok-label", button, "--cancel-label", "Cancelar", "--default-cancel").Run() == nil
+			"--ok-label", button, "--cancel-label", i18n.T("Cancel"), "--default-cancel").Run() == nil
 	}
 	if kdialog, err := exec.LookPath("kdialog"); err == nil {
 		return exec.Command(kdialog, "--title", title, "--warningcontinuecancel", msg,
-			"--continue-label", button, "--cancel-label", "Cancelar").Run() == nil
+			"--continue-label", button, "--cancel-label", i18n.T("Cancel")).Run() == nil
 	}
-	Notify(title, "Instale o zenity ou o kdialog para confirmar esta ação.")
+	Notify(title, i18n.T("Install zenity or kdialog to confirm this action."))
 	return false
 }
