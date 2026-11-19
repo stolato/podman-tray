@@ -27,6 +27,7 @@ jobs:
         with:
           name: macos
           path: dist/*.dmg
+          if-no-files-found: error
 
   # Linux and Windows packages are pure Go, so both are cross-compiled here.
   linux:
@@ -45,6 +46,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.zip
+          if-no-files-found: error
 
   # Runs the Windows-only code (registry, toasts, terminal) through vet and tests.
   windows:

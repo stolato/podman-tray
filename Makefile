@@ -127,6 +127,13 @@ ifneq ($(NOTARY_PROFILE),)
 endif
 	@echo "→ $(DMG)"
 
+uninstall:
+	-pkill -x $(BIN)
+	-"$(INSTALL)/Podman Tray.app/Contents/MacOS/$(BIN)" --unregister-login
+	rm -rf "$(INSTALL)/Podman Tray.app"
+	rm -f $(HOME)/Library/LaunchAgents/com.podman-tray.plist
+endif
+
 # Linux and Windows builds are pure Go (no cgo), so they cross-compile from any OS.
 LINUX_PKG := dist/linux.noindex
 
@@ -155,13 +162,6 @@ windows:
 		echo "→ dist/podman-tray-$(VERSION)-windows-$$arch.zip" || exit 1; \
 	done
 	rm -rf dist/windows.noindex
-
-uninstall:
-	-pkill -x $(BIN)
-	-"$(INSTALL)/Podman Tray.app/Contents/MacOS/$(BIN)" --unregister-login
-	rm -rf "$(INSTALL)/Podman Tray.app"
-	rm -f $(HOME)/Library/LaunchAgents/com.podman-tray.plist
-endif
 
 clean:
 	rm -rf bin dist
