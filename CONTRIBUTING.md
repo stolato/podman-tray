@@ -78,7 +78,7 @@ Os textos fora do Go também têm versão em português: `packaging/*.lproj/Info
 
 ## Versão e release
 
-A versão vem de `CFBundleShortVersionString` no `packaging/Info.plist`: altere lá antes de gerar um release. Cada build recebe também um número com data e hora (`CFBundleVersion`, ex. `202610152041`). A versão aparece no fim do menu (`Podman Tray 1.5.0`) e no tooltip do ícone, em todos os sistemas, e é ela que o aviso de nova versão compara com o último release; o build fica no **Obter Informações** do Finder.
+A versão vem de `CFBundleShortVersionString` no `packaging/Info.plist`: altere lá antes de gerar um release. Cada build recebe também um número com data e hora (`CFBundleVersion`, ex. `202610152041`). A versão aparece no fim do menu (`Podman Tray 1.5.1`) e no tooltip do ícone, em todos os sistemas, e é ela que o aviso de nova versão compara com o último release; o build fica no **Obter Informações** do Finder.
 
 Para publicar, crie e envie uma tag `v<versão>`: o CI gera o DMG, os `.tar.gz`, os `.zip` e o `SHA256SUMS`, e cria o release.
 
